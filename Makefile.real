@@ -1,9 +1,9 @@
 ##################### Configurations #####################
 
 # list of all directories containing .cpp and .h code
-# space separated, no forwardslash in the end
+# space separated, must start with ./ and no forwardslash in the end
 #
-SRC_DIRS := .
+SRC_DIRS := . ./StupidTrie
 
 # additional g++ compiler flags
 #
@@ -38,7 +38,7 @@ OBJS := $(subst /,.,$(OBJS))
 main: $(OBJS) libgtest.a
 	g++ $(FLAGS) $(OBJS) libgtest.a -o main
 
-generated.dependency: $(SRCS_AND_HEADERS)
+generated.dependency: $(SRCS_AND_HEADERS) Makefile
 	rm -f ./generated.dependency
 	for srcname in $(SRCS) ; do \
 		objname=$${srcname#"$(SRC_RELDIR)./"}; \

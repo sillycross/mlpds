@@ -23,7 +23,7 @@ struct TrieNodeDescriptor
 		, children()
 	{
 		assert(0 <= ilen && ilen <= dlen && dlen <= 8);
-		chilren.reserve(numChildren);
+		children.reserve(numChildren);
 	}
 	
 	void AddChild(int c)
@@ -54,7 +54,7 @@ private:
 	void Destroy(node* cur);
 	void Insert(uint8_t* input);
 	uint64_t Dfs(node* cur, vector<TrieNodeDescriptor>& result, int depth, uint64_t curValue);
-}
+};
 
 }	// StupidTrie
 

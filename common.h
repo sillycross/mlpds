@@ -44,6 +44,8 @@ typedef unsigned long long ULL;
 #define TOKEN_PASTEx(x, y) x ## y
 #define TOKEN_PASTE(x, y) TOKEN_PASTEx(x, y)
 
+#define ALWAYS_INLINE __attribute__((always_inline))
+
 struct AutoTimer
 {
 	double *m_result;
@@ -76,11 +78,7 @@ private:
 #define Auto(Destructor) Auto_INTERNAL(Destructor, __COUNTER__)
 
 void ReleaseAssertFailure(const char *__assertion, const char *__file,
-			   unsigned int __line, const char *__function)
-{
-	printf("%s:%u: %s: Assertion `%s' failed.\n", __file, __line, __function, __assertion);
-	exit(0);
-}
+			   unsigned int __line, const char *__function);
 
 #define ReleaseAssert(expr)							\
      (static_cast <bool> (expr)						\

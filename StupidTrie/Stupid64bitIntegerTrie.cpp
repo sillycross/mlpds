@@ -19,7 +19,7 @@ Trie::~Trie()
 void Trie::Destroy(node* cur)
 {
 	assert(cur != nullptr);
-	rept(it,child)
+	rept(it, cur->child)
 	{
 		Destroy(it->second);
 	}
@@ -54,7 +54,6 @@ void Trie::Insert(uint8_t* input)
 			pos = cur->len;
 			continue;
 		}
-		nodeCount++;
 		node* split = new node();
 		memcpy(split->fullKey, next->fullKey, breakPos);
 		split->len = breakPos;
@@ -82,10 +81,10 @@ void Trie::Insert(uint64_t value)
 		input[j] = x % 256;
 		x /= 256;
 	}
-	insert(input);
+	Insert(input);
 }
 
-void Trie::DumpData(vector<TrieNodeDescriptor>& result);
+void Trie::DumpData(vector<TrieNodeDescriptor>& result)
 {
 	result.clear();
 	std::ignore = Dfs(root, result, 0 /*depth*/, 0 /*curValue*/);
