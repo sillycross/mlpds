@@ -9,6 +9,10 @@ SRC_DIRS := .
 #
 EXTRA_FLAGS := -mavx2
 
+# header file base paths for includes, space separated
+#
+INCLUDE_DIRS := .
+
 ##########################################################
 
 DBG=0
@@ -21,6 +25,9 @@ endif
 SRC_RELDIR = ../../
 FLAGS += -std=c++11 -isystem $(SRC_RELDIR)./gtest/include -pthread -g
 FLAGS += $(EXTRA_FLAGS)
+
+INCLUDE_DIRS_FLAGS := $(addprefix -I$(SRC_RELDIR),$(INCLUDE_DIRS))
+FLAGS += $(INCLUDE_DIRS_FLAGS)
 
 SRCS := $(foreach dir,$(SRC_DIRS),$(wildcard $(SRC_RELDIR)$(dir)/*.cpp))
 SRCS_AND_HEADERS := $(foreach dir,$(SRC_DIRS),$(wildcard $(SRC_RELDIR)$(dir)/*.cpp $(SRC_RELDIR)$(dir)/*.h))
