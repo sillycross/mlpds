@@ -77,11 +77,18 @@ private:
 	
 #define Auto(Destructor) Auto_INTERNAL(Destructor, __COUNTER__)
 
-void ReleaseAssertFailure(const char *__assertion, const char *__file,
-			   unsigned int __line, const char *__function);
+struct ReleaseAssertFailure
+{
+	static void Fire(const char *__assertion, const char *__file,
+	                 unsigned int __line, const char *__function)
+	{
+		printf("%s:%u: %s: Assertion `%s' failed.\n", __file, __line, __function, __assertion);
+		exit(0);
+	}
+};
 
 #define ReleaseAssert(expr)							\
      (static_cast <bool> (expr)						\
       ? void (0)							        \
-      : ReleaseAssertFailure (#expr, __FILE__, __LINE__, __extension__ __PRETTY_FUNCTION__))
+      : ReleaseAssertFailure::Fire(#expr, __FILE__, __LINE__, __extension__ __PRETTY_FUNCTION__))
 
