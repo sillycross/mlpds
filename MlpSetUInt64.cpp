@@ -182,7 +182,7 @@ void XXHashArray(uint64_t key, __m128i& out1, __m128i& out2, __m128i& out3, __m1
 	assert(_mm_extract_epi32(out1, 3) == XXHashFn1(key, 8));
 	assert(_mm_extract_epi32(out1, 2) == XXHashFn1(key, 7));
 	assert(_mm_extract_epi32(out1, 1) == XXHashFn1(key, 6));
-	assert(_mm_extract_epi32(out1, 0) == XXHashFn2(key, 5));
+	assert(_mm_extract_epi32(out1, 0) == XXHashFn1(key, 5));
 	assert(_mm_extract_epi32(out2, 3) == XXHashFn2(key, 8));
 	assert(_mm_extract_epi32(out2, 2) == XXHashFn2(key, 7));
 	assert(_mm_extract_epi32(out2, 1) == XXHashFn2(key, 6));
@@ -1094,7 +1094,7 @@ namespace {
 // Test of correctness of CuckooHash related logic
 // This is a vitro test (not acutally a trie tree, just random data)
 //
-TEST(MlpSetUInt64, VitroCuckooHashCorrectness)
+TEST(MlpSetUInt64, VitroCuckooHashLogicCorrectness)
 {
 	const int HtSize = 1 << 26;
 	uint64_t allocatedArrLen = uint64_t(HtSize + 20) * sizeof(MlpSetUInt64::CuckooHashTableNode) + 256;
@@ -1305,6 +1305,186 @@ TEST(MlpSetUInt64, VitroCuckooHashCorrectness)
 		}
 	}
 	printf("Hash table lookup check complete.\n");
+}
+
+// Test of correctness of CuckooHash.QueryLCP() function
+// This is a vitro test (not acutally a trie tree, just random data)
+//
+TEST(MlpSetUInt64, VitroCuckooHashQueryLcpCorrectness)
+{
+	const int HtSize = 1 << 26;
+	uint64_t allocatedArrLen = uint64_t(HtSize + 20) * sizeof(MlpSetUInt64::CuckooHashTableNode) + 256;
+	void* allocatedPtr = mmap(NULL, 
+		                      allocatedArrLen, 
+		                      PROT_READ | PROT_WRITE, 
+		                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, 
+		                      -1 /*fd*/, 
+		                      0 /*offset*/);
+	ReleaseAssert(allocatedPtr != MAP_FAILED);
+	Auto(
+		int result = SAFE_HUGETLB_MUNMAP(allocatedPtr, allocatedArrLen);
+		ReleaseAssert(result == 0);
+	);
+	
+	memset(allocatedPtr, 0, allocatedArrLen);
+	
+	MlpSetUInt64::CuckooHashTable ht;
+	
+	{
+		uintptr_t x = reinterpret_cast<uintptr_t>(allocatedPtr);
+		x += 6 * sizeof(MlpSetUInt64::CuckooHashTableNode);
+		x = x / 128 * 128;
+		ht.Init(reinterpret_cast<MlpSetUInt64::CuckooHashTableNode*>(x), HtSize - 1);
+	}
+	
+	const int numQueries = 20000000;
+	uint64_t* q = new uint64_t[numQueries];
+	pair<int, uint64_t>* expectedAnswers = new pair<int, uint64_t>[numQueries];
+	pair<int, uint64_t>* actualAnswers = new pair<int, uint64_t>[numQueries];
+	ReleaseAssert(q != nullptr);
+	ReleaseAssert(expectedAnswers != nullptr);
+	ReleaseAssert(actualAnswers != nullptr);
+	Auto(delete [] q);
+	Auto(delete [] expectedAnswers);
+	Auto(delete [] actualAnswers);
+	
+	rep(i,0,numQueries-1)
+	{
+		actualAnswers[i].first = 0;
+		actualAnswers[i].second = 0;
+	}
+	
+	{
+		printf("Generating data..\n");
+		int totalNodes = 0.45 * HtSize;	// 45% load factor
+		map<uint64_t, uint64_t> S[9];
+		rep(currentNode, 0, totalNodes - 1)
+		{
+			int ilen;
+			uint64_t key;
+			// generate a node
+			//
+			while (1)
+			{
+				ilen = rand() % 6 + 3;
+				key = 103;
+				rep(i, 2, ilen)
+				{
+					key = key * 256 + rand() % 20;
+				}
+				if (S[ilen].count(key) == 0)
+				{
+					break;
+				}
+			}
+			int dlen = rand() % (9 - ilen) + ilen;
+
+			uint64_t fullKey = key;
+			rep(i, ilen+1, 8)
+			{
+				fullKey = fullKey * 256 + rand() % 20;
+			}
+			
+			S[ilen][key] = fullKey;
+			
+			bool exist, failed;
+			uint32_t pos = ht.Insert(ilen, dlen, fullKey, (dlen == 8 ? -1 : 233) /*firstChild*/, exist, failed);
+			ReleaseAssert(!exist);
+			ReleaseAssert(!failed);
+			ReleaseAssert(ht.ht[pos].GetIndexKeyLen() == ilen);
+			ReleaseAssert(ht.ht[pos].GetFullKeyLen() == dlen);
+			ReleaseAssert(ht.ht[pos].GetFullKey() == fullKey);
+			
+			if (currentNode % (totalNodes / 10) == 0)
+			{
+				printf("%d%% complete\n", currentNode / (totalNodes / 10) * 10);
+			}
+		}
+		printf("Generating query..\n");
+		// generate query
+		//
+		rep(i,0,numQueries-1)
+		{
+			uint64_t key = 103;
+			rep(k,2,8)
+			{
+				key = key * 256 + rand() % 20;
+			}
+			if (rand() % 10 == 0)
+			{
+				key = 103 * 256 + rand() % 20;
+				rep(k,3,8)
+				{
+					key = key * 256 + rand() % 256;
+				}
+			}
+			q[i] = key;
+			expectedAnswers[i] = make_pair(2, uint64_t(-1));
+			repd(len, 8, 3)
+			{
+				if (S[len].count(q[i] >> (64 - len*8)))
+				{	
+					uint64_t v = S[len][q[i] >> (64 - len*8)];
+					expectedAnswers[i].second = v;
+					uint64_t xorValue = q[i] ^ v;
+					if (!xorValue) 
+					{	
+						expectedAnswers[i].first = 8;
+					}
+					else
+					{
+						int z = __builtin_clzll(xorValue);
+						expectedAnswers[i].first = z / 8;
+					}
+					break;
+				}
+			}
+			if (i % (numQueries / 10) == 0)
+			{
+				printf("%d%% complete\n", i / (numQueries / 10) * 10);
+			}
+		}
+		printf("Data generation complete. %d records generated, %d query generated\n", totalNodes, numQueries);
+	}
+	
+	printf("Executing queries..\n");
+	{
+		AutoTimer timer;
+		rep(i,0,numQueries - 1)
+		{
+			uint32_t pos;
+			int len = ht.QueryLCP(q[i], pos /*out*/);
+			actualAnswers[i].first = len;
+			if (len == 2)
+			{
+				actualAnswers[i].second = uint64_t(-1);
+			}
+			else
+			{
+				actualAnswers[i].second = ht.ht[pos].minKey;
+			}
+		}
+	}
+	
+	printf("Query completed.\n");
+	printf("Hash table stats: %u slowpath count\n", ht.stats.m_slowpathCount);
+	
+	printf("Validating answers..\n");
+	{
+		int cnt[10];
+		memset(cnt, 0, sizeof(int) * 10);
+		rep(i,0,numQueries - 1)
+		{
+			ReleaseAssert(actualAnswers[i] == expectedAnswers[i]);
+			cnt[actualAnswers[i].first]++;
+		}
+		printf("Test complete.\n");
+		printf("Query result stats:\n");
+		rep(i,2,8)
+		{
+			printf("LCP = %d: %d\n", i, cnt[i]);
+		}
+	}
 }
 
 }	// annoymous namespace
