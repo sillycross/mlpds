@@ -41,6 +41,9 @@ typedef unsigned long long ULL;
 #define PTRTAG(x) (((uintptr_t)(x))&7)
 #define PTRSET(x, b) ((__typeof(x))((((uintptr_t)(x))&(~7))|(b)))
 
+#define likely(expr)     __builtin_expect((expr) != 0, 1)
+#define unlikely(expr)   __builtin_expect((expr) != 0, 0)
+
 #define TOKEN_PASTEx(x, y) x ## y
 #define TOKEN_PASTE(x, y) TOKEN_PASTEx(x, y)
 
