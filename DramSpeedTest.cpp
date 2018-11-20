@@ -32,10 +32,18 @@ atype* AllocateMemory(bool usingHugePage)
 	return a;
 }
 
-void DeallocateMemory(void* ptr)
+void DeallocateMemory(void* ptr, bool usingHugePage)
 {
 	uint64_t numBytes = memMB * uint64_t(1 << 20);
-	int ret = munmap(ptr, numBytes);
+	int ret;
+	if (usingHugePage)
+	{
+		ret = SAFE_HUGETLB_MUNMAP(ptr, numBytes);
+	}
+	else
+	{
+		ret = munmap(ptr, numBytes);
+	}
 	ReleaseAssert(ret == 0);
 }
 
@@ -115,7 +123,7 @@ void RunTest(atype* a)
 TEST(DramSpeedTest, HugePage)
 {
 	atype* a = AllocateMemory(true /*usingHugePage*/);
-	Auto(DeallocateMemory(a));
+	Auto(DeallocateMemory(a, true /*usingHugePage*/));
 	
 	RunTest(a);
 }
@@ -123,7 +131,7 @@ TEST(DramSpeedTest, HugePage)
 TEST(DramSpeedTest, NoHugePage)
 {
 	atype* a = AllocateMemory(false /*usingHugePage*/);
-	Auto(DeallocateMemory(a));
+	Auto(DeallocateMemory(a, false /*usingHugePage*/));
 	
 	RunTest(a);
 }

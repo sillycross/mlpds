@@ -49,6 +49,14 @@ typedef unsigned long long ULL;
 
 #define ALWAYS_INLINE __attribute__((always_inline))
 
+// #define HUGEPAGESIZE_BYTES 2097152
+#define HUGEPAGESIZE_BYTES 1073741824
+
+// According to manual, if mmap uses hugetlb,
+// the munmap length must be a multiple of HugePageSize 
+//
+#define SAFE_HUGETLB_MUNMAP(ptr, length) munmap((ptr), ((length) - 1) / HUGEPAGESIZE_BYTES * HUGEPAGESIZE_BYTES + HUGEPAGESIZE_BYTES)
+
 struct AutoTimer
 {
 	double *m_result;
@@ -86,7 +94,7 @@ struct ReleaseAssertFailure
 	                 unsigned int __line, const char *__function)
 	{
 		printf("%s:%u: %s: Assertion `%s' failed.\n", __file, __line, __function, __assertion);
-		exit(0);
+		abort();
 	}
 };
 

@@ -1,5 +1,9 @@
 #include "common.h"
 
+#include "StupidTrie/Stupid64bitIntegerTrie.h"
+
+#include "gtest/gtest.h"
+
 namespace MlpSetUInt64
 {
 
@@ -320,7 +324,7 @@ struct CuckooHashTableNode
 		hash |= ((k-1) << 18); 
 	}
 	
-	void Init(int ilen, uint64_t ikey, int dlen, uint64_t dkey, uint32_t hash18bit, int firstChild)
+	void Init(int ilen, int dlen, uint64_t dkey, uint32_t hash18bit, int firstChild)
 	{
 		assert(!IsOccupied());
 		assert(1 <= ilen && ilen <= 8 && 1 <= dlen && dlen <= 8 && -1 <= firstChild && firstChild <= 255);
@@ -699,19 +703,19 @@ public:
 	// Since we use path-compression, if the node is not a leaf, it must has at least one child already known
 	// In case it is a leaf, firstChild should be -1
 	//
-	uint32_t HashTableInsert(int ilen, uint64_t ikey, int dlen, uint64_t dkey, int firstChild, bool& exist, bool& failed)
+	uint32_t Insert(int ilen, int dlen, uint64_t dkey, int firstChild, bool& exist, bool& failed)
 	{
 		exist = false;
 		failed = false;
-		uint32_t hash18bit = XXH::XXHashFn3(ikey, ilen);
+		uint32_t hash18bit = XXH::XXHashFn3(dkey, ilen);
 		hash18bit = hash18bit & ((1<<18) - 1);
 		uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
 		int shiftLen = 64 - 8 * ilen;
-		uint64_t shiftedKey = ikey >> shiftLen;
+		uint64_t shiftedKey = dkey >> shiftLen;
 		
 		uint32_t h1, h2;
-		h1 = XXH::XXHashFn1(ikey, ilen) & htMask;
-		h2 = XXH::XXHashFn2(ikey, ilen) & htMask;
+		h1 = XXH::XXHashFn1(dkey, ilen) & htMask;
+		h2 = XXH::XXHashFn2(dkey, ilen) & htMask;
 		if (ht[h1].IsEqual(expectedHash, shiftLen, shiftedKey))
 		{
 			exist = true;
@@ -724,12 +728,12 @@ public:
 		}
 		if (!ht[h1].IsOccupied())
 		{
-			ht[h1].Init(ilen, ikey, dlen, dkey, hash18bit, firstChild);
+			ht[h1].Init(ilen, dlen, dkey, hash18bit, firstChild);
 			return h1;
 		}
 		if (!ht[h2].IsOccupied())
 		{
-			ht[h2].Init(ilen, ikey, dlen, dkey, hash18bit, firstChild);
+			ht[h2].Init(ilen, dlen, dkey, hash18bit, firstChild);
 			return h2;
 		}
 		uint32_t victimPosition = rand()%2 ? h1 : h2;
@@ -739,8 +743,37 @@ public:
 			return -1;
 		}
 		assert(!ht[victimPosition].IsOccupied());
-		ht[victimPosition].Init(ilen, ikey, dlen, dkey, hash18bit, firstChild);
+		ht[victimPosition].Init(ilen, dlen, dkey, hash18bit, firstChild);
 		return victimPosition;
+	}
+
+	// Single point lookup
+	//
+	uint32_t Lookup(int ilen, uint64_t ikey, bool& found)
+	{
+		found = false;
+		uint32_t hash18bit = XXH::XXHashFn3(ikey, ilen);
+		hash18bit = hash18bit & ((1<<18) - 1);
+		uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
+		int shiftLen = 64 - 8 * ilen;
+		uint64_t shiftedKey = ikey >> shiftLen;
+		
+		uint32_t h1, h2;
+		h1 = XXH::XXHashFn1(ikey, ilen) & htMask;
+		h2 = XXH::XXHashFn2(ikey, ilen) & htMask;
+		MEM_PREFETCH(ht[h1]);
+		MEM_PREFETCH(ht[h2]);
+		if (ht[h1].IsEqual(expectedHash, shiftLen, shiftedKey))
+		{
+			found = true;
+			return h1;
+		}
+		if (ht[h2].IsEqual(expectedHash, shiftLen, shiftedKey))
+		{
+			found = true;
+			return h2;
+		}
+		return -1;
 	}
 
 	// Fast LCP query using vectorized hash computation and memory level parallelism
@@ -967,9 +1000,7 @@ public:
 	{
 		if (m_memoryPtr != nullptr && m_memoryPtr != MAP_FAILED)
 		{
-			// TODO: manual says length must be a multiple of HugePageSize if we are using hugepage
-			//
-			int ret = munmap(m_memoryPtr, m_allocatedSize);
+			int ret = SAFE_HUGETLB_MUNMAP(m_memoryPtr, m_allocatedSize);
 			assert(ret == 0);
 			m_memoryPtr = nullptr;
 		}
@@ -1057,4 +1088,224 @@ private:
 };
 
 }	// namespace MlpSetUInt64
+
+namespace {
+
+// Test of correctness of CuckooHash related logic
+// This is a vitro test (not acutally a trie tree, just random data)
+//
+TEST(MlpSetUInt64, VitroCuckooHashCorrectness)
+{
+	const int HtSize = 1 << 26;
+	uint64_t allocatedArrLen = uint64_t(HtSize + 20) * sizeof(MlpSetUInt64::CuckooHashTableNode) + 256;
+	void* allocatedPtr = mmap(NULL, 
+		                      allocatedArrLen, 
+		                      PROT_READ | PROT_WRITE, 
+		                      MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, 
+		                      -1 /*fd*/, 
+		                      0 /*offset*/);
+	ReleaseAssert(allocatedPtr != MAP_FAILED);
+	Auto(
+		int result = SAFE_HUGETLB_MUNMAP(allocatedPtr, allocatedArrLen);
+		ReleaseAssert(result == 0);
+	);
+	
+	memset(allocatedPtr, 0, allocatedArrLen);
+	
+	MlpSetUInt64::CuckooHashTable ht;
+	
+	{
+		uintptr_t x = reinterpret_cast<uintptr_t>(allocatedPtr);
+		x += 6 * sizeof(MlpSetUInt64::CuckooHashTableNode);
+		x = x / 128 * 128;
+		ht.Init(reinterpret_cast<MlpSetUInt64::CuckooHashTableNode*>(x), HtSize - 1);
+	}
+	
+	vector<StupidUInt64Trie::TrieNodeDescriptor> data;
+	
+	// gen data
+	//
+	{
+		printf("Generating data..\n");
+		int remainingNodes = 0.45 * HtSize;	// 45% load factor
+		int numNodesForTenPercent = remainingNodes / 10;
+		data.reserve(remainingNodes);
+		set<uint64_t> S[9];
+		while (remainingNodes > 0)
+		{
+			int ilen;
+			uint64_t key;
+			// generate a node
+			//
+			while (1)
+			{
+				ilen = rand() % 6 + 3;
+				key = 0;
+				rep(i, 1, ilen)
+				{
+					key = key * 256 + rand() % 256;
+				}
+				if (S[ilen].count(key) == 0)
+				{
+					break;
+				}
+			}
+			S[ilen].insert(key);
+			int dlen = rand() % (9 - ilen) + ilen;
+			remainingNodes--;
+			
+			rep(i, ilen+1, 8)
+			{
+				key = key * 256 + rand() % 256;
+			}
+			
+			// generate some childs
+			//
+			int numChilds = (rand() % 3 == 0) ? (8 + rand() % 20) : (rand() % 8 + 1);
+			if (dlen == 8)
+			{
+				numChilds = 0;
+			}
+			bool exist[256]; 
+			memset(exist, 0, 256);
+			rep(i, 1, numChilds) 
+			{
+				exist[rand() % 256] = 1;
+			}
+			int actualNumChilds = 0;
+			rep(i, 0, 255)
+			{
+				if (exist[i])
+				{
+					actualNumChilds++;
+				}
+			}
+			if (actualNumChilds > 8) 
+			{
+				remainingNodes--;
+			}
+			
+			data.push_back(StupidUInt64Trie::TrieNodeDescriptor(ilen, dlen, key, actualNumChilds));
+			rep(i, 0, 255)
+			{
+				if (exist[i])
+				{
+					data.back().AddChild(i);
+				}
+			}
+			if (remainingNodes % numNodesForTenPercent == 0)
+			{
+				printf("%d%% complete\n", 100 - remainingNodes / numNodesForTenPercent * 10);
+			}
+		}
+		printf("Data generation complete. %d records generated\n", int(data.size()));
+	}
+	
+	// insert data, check each row is as expected right after its insertion
+	//
+	printf("Inserting data..\n");
+	rept(row, data)
+	{
+		int childCount = row->children.size();
+		int firstChild = -1;
+		if (childCount > 0)
+		{
+			firstChild = row->children[0];
+		}
+		bool exist, failed;
+		uint32_t pos = ht.Insert(row->ilen, row->dlen, row->minv, firstChild, exist, failed);
+		ReleaseAssert(!exist);
+		ReleaseAssert(!failed);
+		ReleaseAssert(ht.ht[pos].GetIndexKeyLen() == row->ilen);
+		ReleaseAssert(ht.ht[pos].GetFullKeyLen() == row->dlen);
+		ReleaseAssert(ht.ht[pos].GetFullKey() == row->minv);
+		rep(i, 1, childCount - 1)
+		{
+			ht.ht[pos].AddChild(row->children[i]);
+		}
+		if (childCount > 0)
+		{
+			vector<int> ch = ht.ht[pos].GetAllChildren();
+			ReleaseAssert(ch.size() == row->children.size());
+			rep(i, 0, int(ch.size()) - 1)
+			{
+				ReleaseAssert(ch[i] == row->children[i]);
+			}
+		}
+	}
+	printf("Insertion complete.\n");
+	printf("Cuckoo hash table stats: %u node moves %u bitmap moves\n", 
+		   ht.stats.m_movedNodesCount, ht.stats.m_relocatedBitmapsCount);
+		       
+	// sanity check whole hash table
+	//
+	{
+		printf("Sanity check hash table..\n");
+		int nodeCount = 0;
+		int bitmapCount = 0;
+		int bitmapCount2 = 0;
+		int extMapCount = 0;
+		rep(i, -3, HtSize + 2)
+		{
+			if (ht.ht[i].IsOccupied())
+			{
+				if (ht.ht[i].IsNode())
+				{
+					nodeCount++;
+					if (!ht.ht[i].IsUsingInternalChildMap())
+					{
+						bitmapCount++;
+						if (ht.ht[i].IsExternalPointerBitMap())
+						{
+							extMapCount++;
+						}
+						else
+						{
+							int offset = (ht.ht[i].hash >> 21) & 7;
+							assert(ht.ht[i+offset-4].IsOccupied() && !ht.ht[i+offset-4].IsNode());
+						}
+					}
+				}
+				else
+				{
+					bitmapCount2++;
+				}
+			}
+		}
+		ReleaseAssert(bitmapCount == bitmapCount2 + extMapCount);
+		ReleaseAssert(nodeCount == data.size());
+		printf("Hash table sanity check complete.\n");
+		printf("Hash table bitmap stats: %d bitmaps %d external bitmaps\n", bitmapCount, extMapCount);
+	}
+	
+	// Lookup for each row of data again and make sure everything is as expected
+	//
+	printf("Performing lookup for all inserted rows..\n");
+	rept(row, data)
+	{
+		bool found;
+		uint32_t pos = ht.Lookup(row->ilen, row->minv, found);
+		ReleaseAssert(found);
+		ReleaseAssert(ht.ht[pos].GetIndexKeyLen() == row->ilen);
+		ReleaseAssert(ht.ht[pos].GetFullKeyLen() == row->dlen);
+		ReleaseAssert(ht.ht[pos].GetFullKey() == row->minv);
+		int childCount = row->children.size();
+		if (childCount > 0)
+		{
+			vector<int> ch = ht.ht[pos].GetAllChildren();
+			ReleaseAssert(ch.size() == row->children.size());
+			rep(i, 0, int(ch.size()) - 1)
+			{
+				ReleaseAssert(ch[i] == row->children[i]);
+			}
+		}
+		else
+		{
+			ReleaseAssert(ht.ht[pos].IsLeaf());
+		}
+	}
+	printf("Hash table lookup check complete.\n");
+}
+
+}	// annoymous namespace
 

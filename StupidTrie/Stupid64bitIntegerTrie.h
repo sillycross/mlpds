@@ -16,6 +16,7 @@ struct TrieNodeDescriptor
 	int dlen;
 	uint64_t minv;
 	vector<int> children;
+	TrieNodeDescriptor() {}
 	TrieNodeDescriptor(int ilen, int dlen, uint64_t minv, int numChildren)
 		: ilen(ilen)
 		, dlen(dlen)
