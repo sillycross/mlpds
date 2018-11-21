@@ -3,7 +3,7 @@
 # list of all directories containing .cpp and .h code
 # space separated, must start with ./ and no forwardslash in the end
 #
-SRC_DIRS := . ./StupidTrie
+SRC_DIRS := . ./StupidTrie ./Workloads
 
 # additional g++ compiler flags
 #
@@ -11,7 +11,7 @@ EXTRA_FLAGS := -mavx2
 
 # header file base paths for includes, space separated
 #
-INCLUDE_DIRS := .
+INCLUDE_DIRS := . ./Workloads
 
 ##########################################################
 

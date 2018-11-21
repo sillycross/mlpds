@@ -281,6 +281,10 @@ public:
 	//
 	bool Insert(uint64_t value);
 	
+	// Returns whether the specified value exists in the set
+	//
+	bool Exist(uint64_t value);
+	
 	// For debug purposes only
 	//
 	uint64_t* GetRootPtr() { return m_root; }

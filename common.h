@@ -48,6 +48,7 @@ typedef unsigned long long ULL;
 #define TOKEN_PASTE(x, y) TOKEN_PASTEx(x, y)
 
 #define ALWAYS_INLINE __attribute__((always_inline))
+#define NO_INLINE __attribute__((noinline))
 
 // #define HUGEPAGESIZE_BYTES 2097152
 #define HUGEPAGESIZE_BYTES 1073741824

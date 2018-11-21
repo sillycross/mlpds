@@ -1,6 +1,8 @@
 #include "common.h"
 #include "MlpSetUInt64.h"
 #include "StupidTrie/Stupid64bitIntegerTrie.h"
+#include "WorkloadInterface.h"
+#include "WorkloadA.h"
 #include "gtest/gtest.h"
 
 namespace {
@@ -561,6 +563,118 @@ TEST(MlpSetUInt64, MlpSetInsertCorrectness)
 	       ms.GetHtPtr()->stats.m_slowpathCount, 
 	       ms.GetHtPtr()->stats.m_movedNodesCount, 
 	       ms.GetHtPtr()->stats.m_relocatedBitmapsCount);
+}
+
+template<bool enforcedDep>
+void NO_INLINE ExecuteWorkload(WorkloadUInt64& workload)
+{
+	printf("MlpSet executing workload, enforced dependency = %d\n", (enforcedDep ? 1 : 0));
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(workload.numInitialValues + 1000);
+	
+	printf("MlpSet populating initial values..\n");
+	{
+		AutoTimer timer;
+		rep(i, 0, workload.numInitialValues - 1)
+		{
+			ms.Insert(workload.initialValues[i]);
+		}
+	}
+	
+	printf("MlpSet executing workload..\n");
+	{
+		AutoTimer timer;
+		if (enforcedDep)
+		{
+			uint64_t lastAnswer = 0;
+			rep(i, 0, workload.numOperations - 1)
+			{
+				uint32_t x = workload.operations[i].type;
+				x ^= (uint32_t)lastAnswer;
+				WorkloadOperationType type = (WorkloadOperationType)x;
+				uint64_t realKey = workload.operations[i].key ^ lastAnswer;
+				uint64_t answer;
+				switch (type)
+				{
+					case WorkloadOperationType::INSERT:
+					{
+						answer = ms.Insert(realKey);
+						break;
+					}
+					case WorkloadOperationType::EXIST:
+					{
+						answer = ms.Exist(realKey);
+						break;
+					}
+				}
+				workload.results[i] = answer;
+				lastAnswer = answer;
+			}
+		}
+		else
+		{
+			rep(i, 0, workload.numOperations - 1)
+			{
+				uint64_t answer;
+				switch (workload.operations[i].type)
+				{
+					case WorkloadOperationType::INSERT:
+					{
+						answer = ms.Insert(workload.operations[i].key);
+						break;
+					}
+					case WorkloadOperationType::EXIST:
+					{
+						answer = ms.Exist(workload.operations[i].key);
+						break;
+					}
+				}
+				workload.results[i] = answer;
+			}
+		}
+	}
+	
+	printf("MlpSet workload completed.\n");
+}
+
+TEST(MlpSetUInt64, WorkloadA_16M)
+{
+	printf("Generating workload WorkloadA 16M NO-ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadA::GenWorkload16M();
+	Auto(workload.FreeMemory());
+	
+	printf("Executing workload..\n");
+	ExecuteWorkload<false>(workload);
+	
+	printf("Validating results..\n");
+	uint64_t sum = 0;
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+		sum += workload.results[i];
+	}
+	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
+}
+
+TEST(MlpSetUInt64, WorkloadA_16M_Dep)
+{
+	printf("Generating workload WorkloadA 16M ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadA::GenWorkload16M();
+	Auto(workload.FreeMemory());
+	
+	workload.EnforceDependency();
+	
+	printf("Executing workload..\n");
+	ExecuteWorkload<true>(workload);
+	
+	printf("Validating results..\n");
+	uint64_t sum = 0;
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+		sum += workload.results[i];
+	}
+	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
 }
 
 }	// annoymous namespace

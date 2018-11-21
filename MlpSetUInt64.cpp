@@ -1106,5 +1106,15 @@ _end:
 	return true;
 }
 
+bool MlpSet::Exist(uint64_t value)
+{
+	assert(m_hasCalledInit);
+	uint32_t pos;
+	uint64_t _allPositions[4];
+	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
+	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+	return (lcpLen == 8);
+}
+
 }	// namespace MlpSetUInt64
 
