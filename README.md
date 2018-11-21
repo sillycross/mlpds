@@ -6,6 +6,12 @@ Fun with data structures utilizing memory level parallelism (working in progress
 * 64-bit integers, 16M insertion followed by 20M existence query (~80% yield positive results)
   * **MlpSet**: 3.70M insertion/sec, 6.00M query/sec
   * **libart**: 1.52M insertion/sec, 1.68M query/sec
+  * **std::set**: 1.01M insertion/sec, 0.93M query/sec
+
+* Same setup as above, but 80M data set 
+  * **MlpSet**: 3.60M insertion/sec, 5.83M query/sec
+  * **libart**: 1.19M insertion/sec, 1.35M query/sec
+  * **std::set**: 0.71M insertion/sec, 0.67M query/sec
 
 * more to come...
 

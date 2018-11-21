@@ -173,6 +173,25 @@ TEST(ArtTrieUInt64, WorkloadA_16M_Dep)
 	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
 }
 
+TEST(ArtTrieUInt64, WorkloadA_80M_Dep)
+{
+	printf("Generating workload WorkloadA 80M ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadA::GenWorkload80M();
+	Auto(workload.FreeMemory());
+	
+	printf("Executing workload..\n");
+	ArtTrieExecuteWorkload<true>(workload);
+	
+	printf("Validating results..\n");
+	uint64_t sum = 0;
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+		sum += workload.results[i];
+	}
+	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
+}
+
 }	// namespace
 
 
