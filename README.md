@@ -1,6 +1,14 @@
 ## High-Performance Data Structures via Memory Level Parallelism
 Fun with data structures utilizing memory level parallelism (working in progress)
 
+### Benchmark results
+
+* 64-bit integers, 16M insertion followed by 20M existence query (~80% yield positive results)
+  * **MlpSet**: 3.70M insertion/sec, 6.00M query/sec
+  * **libart**: 1.52M insertion/sec, 1.68M query/sec
+
+* more to come...
+
 ### List of third-party libraries used in this project
 
 * [**xxHash**](https://github.com/Cyan4973/xxHash) ([Author](https://github.com/Cyan4973))

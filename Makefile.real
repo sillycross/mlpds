@@ -3,7 +3,7 @@
 # list of all directories containing .cpp and .h code
 # space separated, must start with ./ and no forwardslash in the end
 #
-SRC_DIRS := . ./StupidTrie ./Workloads
+SRC_DIRS := . ./StupidTrie ./Workloads ./third_party/libart
 
 # additional g++ compiler flags
 #

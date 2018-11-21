@@ -566,7 +566,7 @@ TEST(MlpSetUInt64, MlpSetInsertCorrectness)
 }
 
 template<bool enforcedDep>
-void NO_INLINE ExecuteWorkload(WorkloadUInt64& workload)
+void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 {
 	printf("MlpSet executing workload, enforced dependency = %d\n", (enforcedDep ? 1 : 0));
 	MlpSetUInt64::MlpSet ms;
@@ -644,7 +644,7 @@ TEST(MlpSetUInt64, WorkloadA_16M)
 	Auto(workload.FreeMemory());
 	
 	printf("Executing workload..\n");
-	ExecuteWorkload<false>(workload);
+	MlpSetExecuteWorkload<false>(workload);
 	
 	printf("Validating results..\n");
 	uint64_t sum = 0;
@@ -665,7 +665,7 @@ TEST(MlpSetUInt64, WorkloadA_16M_Dep)
 	workload.EnforceDependency();
 	
 	printf("Executing workload..\n");
-	ExecuteWorkload<true>(workload);
+	MlpSetExecuteWorkload<true>(workload);
 	
 	printf("Validating results..\n");
 	uint64_t sum = 0;

@@ -103,6 +103,6 @@ void WorkloadUInt64::EnforceDependency()
 		operations[i].type = (WorkloadOperationType)x;
 		operations[i].key ^= expectedResults[i-1];
 	}
-	printf("Complete.\n");
+	printf("Completed enforcing dependency.\n");
 }
 
