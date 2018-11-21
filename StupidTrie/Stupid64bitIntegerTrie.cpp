@@ -26,7 +26,7 @@ void Trie::Destroy(node* cur)
 	delete cur;
 }
 
-void Trie::Insert(uint8_t* input)
+bool Trie::Insert(uint8_t* input)
 {
 	node* cur = root;
 	int pos = 0;
@@ -64,15 +64,16 @@ void Trie::Insert(uint8_t* input)
 	}
 	if (pos == 8)
 	{
-		return;
+		return false;
 	}
 	node* leaf = new node();
 	leaf->len = 8;
 	memcpy(leaf->fullKey, input, 8);
 	cur->child[input[pos]] = leaf;
+	return true;
 }
 
-void Trie::Insert(uint64_t value)
+bool Trie::Insert(uint64_t value)
 {
 	uint8_t input[8];
 	uint64_t x = value;
@@ -81,7 +82,7 @@ void Trie::Insert(uint64_t value)
 		input[j] = x % 256;
 		x /= 256;
 	}
-	Insert(input);
+	return Insert(input);
 }
 
 void Trie::DumpData(vector<TrieNodeDescriptor>& result)
@@ -110,7 +111,10 @@ uint64_t Trie::Dfs(node* cur, vector<TrieNodeDescriptor>& result, int depth, uin
 		minv = fullKey;
 	}
 	
-	assert((minv >> (64 - depth * 8)) == (curValue >> (64 - depth * 8)));
+	if (depth > 0)
+	{
+		assert((minv >> (64 - depth * 8)) == (curValue >> (64 - depth * 8)));
+	}
 	
 	result.push_back(TrieNodeDescriptor(depth, cur->len, minv, cur->child.size()));
 	rept(it, cur->child)

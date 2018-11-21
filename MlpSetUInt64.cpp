@@ -372,7 +372,12 @@ void CuckooHashTableNode::AddChild(int child)
 
 vector<int> CuckooHashTableNode::GetAllChildren()
 {
-	assert(IsNode() && !IsLeaf());
+	assert(IsNode());
+	if (IsLeaf())
+	{
+		return vector<int>();
+	}
+	
 	vector<int> ret;
 	if (IsUsingInternalChildMap())
 	{
@@ -552,13 +557,14 @@ void CuckooHashTable::Init(CuckooHashTableNode* _ht, uint64_t _mask)
 	assert(reinterpret_cast<uintptr_t>(_ht) % 128 == 0);
 	assert(RoundUpToNearestPowerOf2(_mask + 1) == _mask + 1);
 }
-	
-uint32_t CuckooHashTable::Insert(int ilen, int dlen, uint64_t dkey, int firstChild, bool& exist, bool& failed)
+
+uint32_t CuckooHashTable::ReservePositionForInsert(int ilen, uint64_t dkey, uint32_t hash18bit, bool& exist, bool& failed)
 {
+	assert(m_hasCalledInit);
+	
 	exist = false;
 	failed = false;
-	uint32_t hash18bit = XXH::XXHashFn3(dkey, ilen);
-	hash18bit = hash18bit & ((1<<18) - 1);
+	
 	uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
 	int shiftLen = 64 - 8 * ilen;
 	uint64_t shiftedKey = dkey >> shiftLen;
@@ -578,12 +584,10 @@ uint32_t CuckooHashTable::Insert(int ilen, int dlen, uint64_t dkey, int firstChi
 	}
 	if (!ht[h1].IsOccupied())
 	{
-		ht[h1].Init(ilen, dlen, dkey, hash18bit, firstChild);
 		return h1;
 	}
 	if (!ht[h2].IsOccupied())
 	{
-		ht[h2].Init(ilen, dlen, dkey, hash18bit, firstChild);
 		return h2;
 	}
 	uint32_t victimPosition = rand()%2 ? h1 : h2;
@@ -593,14 +597,28 @@ uint32_t CuckooHashTable::Insert(int ilen, int dlen, uint64_t dkey, int firstChi
 		return -1;
 	}
 	assert(!ht[victimPosition].IsOccupied());
-	ht[victimPosition].Init(ilen, dlen, dkey, hash18bit, firstChild);
 	return victimPosition;
 }
 
-// Single point lookup
-//
+uint32_t CuckooHashTable::Insert(int ilen, int dlen, uint64_t dkey, int firstChild, bool& exist, bool& failed)
+{
+	assert(m_hasCalledInit);
+	
+	uint32_t hash18bit = XXH::XXHashFn3(dkey, ilen);
+	hash18bit = hash18bit & ((1<<18) - 1);
+	
+	uint32_t pos = ReservePositionForInsert(ilen, dkey, hash18bit, exist, failed);
+	if (!exist && !failed)
+	{
+		ht[pos].Init(ilen, dlen, dkey, hash18bit, firstChild);
+	}
+	return pos;
+}
+
 uint32_t CuckooHashTable::Lookup(int ilen, uint64_t ikey, bool& found)
 {
+	assert(m_hasCalledInit);
+	
 	found = false;
 	uint32_t hash18bit = XXH::XXHashFn3(ikey, ilen);
 	hash18bit = hash18bit & ((1<<18) - 1);
@@ -626,13 +644,10 @@ uint32_t CuckooHashTable::Lookup(int ilen, uint64_t ikey, bool& found)
 	return -1;
 }
 
-// Fast LCP query using vectorized hash computation and memory level parallelism
-// Since we only store nodes of depth >= 3 in hash table, 
-// this function will return 2 if the LCP is < 3 (even if the real LCP is < 2).
-// In case this function returns > 2, resultPos will be set to the index of corresponding node
-//
-int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos)
+int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions)
 {
+	assert(m_hasCalledInit);
+	
 	__m128i h1, h2, h3, h4;
 	uint64_t h5;
 	XXH::XXHashArray(key, h1, h2, h3, h4, h5);
@@ -690,16 +705,15 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos)
 		// investigate if re-computation is more performant
 		//
 		
-		h1 = _mm_and_si128(cmp1, h1);
-		h2 = _mm_and_si128(cmp2, h2);
-		h4 = _mm_and_si128(cmp3, h4);
+		cmp1 = _mm_and_si128(cmp1, h1);
+		cmp2 = _mm_and_si128(cmp2, h2);
+		cmp3 = _mm_and_si128(cmp3, h4);
 		
-		uint32_t buffer[8];
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), h4);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+4), _mm_or_si128(h1, h2));
-		uint64_t* ptr = reinterpret_cast<uint64_t*>(buffer);
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions), cmp3);
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions+4), _mm_or_si128(cmp1, cmp2));
+		uint64_t* ptr = reinterpret_cast<uint64_t*>(allPositions);
 		ptr[1] |= ptr[0];
-		uint32_t pos = buffer[ordinal+1];
+		uint32_t pos = allPositions[ordinal+1];
 		
 		int ilen = ordinal + 2;
 		int shiftLen = 64 - 8 * ilen;
@@ -726,41 +740,41 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos)
 _slowpath:
 	{
 		stats.m_slowpathCount++;
-		uint32_t buffer[12];
+		memset(allPositions, 0, 32);
+		uint64_t _buffer[12];
+		uint32_t* buffer = reinterpret_cast<uint32_t*>(_buffer);
 		// h1(5), h1(6), h1(7), h1(8)
 		// h2(5), h2(6), h2(7), h2(8)
 		// h2(3), h2(4), h1(3), h1(4)
 		//
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), offset1);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+4), offset2);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+8), offset4);
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), h1);
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+4), h2);
+		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+8), h4);
 			
-#define HT_ACCESS_NODE(x) (reinterpret_cast<CuckooHashTableNode*>(reinterpret_cast<uint64_t*>(ht) + (x)))
 		uint32_t pos = -1;
-		if (HT_ACCESS_NODE(buffer[3])->IsEqualNoHash(key, 8)) { pos = buffer[3]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[7])->IsEqualNoHash(key, 8)) { pos = buffer[7]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[2])->IsEqualNoHash(key, 7)) { pos = buffer[2]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[6])->IsEqualNoHash(key, 7)) { pos = buffer[6]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[1])->IsEqualNoHash(key, 6)) { pos = buffer[1]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[5])->IsEqualNoHash(key, 6)) { pos = buffer[5]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[0])->IsEqualNoHash(key, 5)) { pos = buffer[0]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[4])->IsEqualNoHash(key, 5)) { pos = buffer[4]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[9])->IsEqualNoHash(key, 4)) { pos = buffer[9]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[11])->IsEqualNoHash(key, 4)) { pos = buffer[11]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[8])->IsEqualNoHash(key, 3)) { pos = buffer[8]; goto _slowpath_end; }
-		if (HT_ACCESS_NODE(buffer[10])->IsEqualNoHash(key, 3)) { pos = buffer[10]; goto _slowpath_end; }
-		return 2;	// TODO: fix
+		bool found = false;
+		if (ht[buffer[8]].IsEqualNoHash(key, 3)) { found = true; pos = buffer[8]; allPositions[2] = buffer[8]; }
+		if (ht[buffer[10]].IsEqualNoHash(key, 3)) { found = true; pos = buffer[10]; allPositions[2] = buffer[10]; }
+		if (ht[buffer[9]].IsEqualNoHash(key, 4)) { found = true; pos = buffer[9]; allPositions[3] = buffer[9]; }
+		if (ht[buffer[11]].IsEqualNoHash(key, 4)) { found = true; pos = buffer[11]; allPositions[3] = buffer[11]; }
+		if (ht[buffer[0]].IsEqualNoHash(key, 5)) { found = true; pos = buffer[0]; allPositions[4] = buffer[0]; }
+		if (ht[buffer[4]].IsEqualNoHash(key, 5)) { found = true; pos = buffer[4]; allPositions[4] = buffer[4]; }
+		if (ht[buffer[1]].IsEqualNoHash(key, 6)) { found = true; pos = buffer[1]; allPositions[5] = buffer[1]; }
+		if (ht[buffer[5]].IsEqualNoHash(key, 6)) { found = true; pos = buffer[5]; allPositions[5] = buffer[5]; }
+		if (ht[buffer[2]].IsEqualNoHash(key, 7)) { found = true; pos = buffer[2]; allPositions[6] = buffer[2]; }
+		if (ht[buffer[6]].IsEqualNoHash(key, 7)) { found = true; pos = buffer[6]; allPositions[6] = buffer[6]; }
+		if (ht[buffer[3]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[3]; allPositions[7] = buffer[3] ; }
+		if (ht[buffer[7]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[7]; allPositions[7] = buffer[7]; }
+		if (!found) { return 2;	}
 
-_slowpath_end:
 		assert(pos != -1);	// we will never have such a large hash table in debug..
-			
-		resultPos = pos / 3;
-		uint64_t xorValue = key ^ (HT_ACCESS_NODE(pos)->minKey);
+		
+		resultPos = pos;
+		uint64_t xorValue = key ^ ht[pos].minKey;
 		if (!xorValue) return 8;
 			
 		int z = __builtin_clzll(xorValue);
 		return z / 8;
-#undef HT_ACCESS_NODE
 	}
 }
 
@@ -802,7 +816,7 @@ void CuckooHashTable::HashTableCuckooDisplacement(uint32_t victimPosition, int r
 		rep(i, -3, 3)
 		{
 			CuckooHashTableNode* target = &ht[victimPosition + i];
-			if (target->IsOccupied() && target->IsNode() && !target->IsUsingInternalChildMap() && !target->IsExternalPointerBitMap())
+			if (target->IsOccupiedAndNode() && !target->IsUsingInternalChildMap() && !target->IsExternalPointerBitMap())
 			{
 				int offset = ((target->hash >> 21) & 7) - 4;
 				if (offset + i == 0)
@@ -890,6 +904,206 @@ void MlpSet::Init(uint32_t maxSetSize)
 	m_hashTable.Init(reinterpret_cast<CuckooHashTableNode*>(ptr + hashTableOffset), htSize - 1);
 	
 	memset(m_memoryPtr, 0, m_allocatedSize);
+}
+
+bool MlpSet::Insert(uint64_t value)
+{
+	assert(m_hasCalledInit);
+	int lcpLen;
+	// Handle LCP < 2 case first
+	// This is supposed to be a L1 hit (working set 8KB)
+	//
+	{
+		uint64_t h16bits = value >> 48;
+		if (unlikely((m_treeDepth1[h16bits / 64] & (uint64_t(1) << (h16bits % 64))) == 0))
+		{
+			lcpLen = 2;
+			m_root[(h16bits >> 8) / 64] |= uint64_t(1) << ((h16bits >> 8) % 64);
+			m_treeDepth1[h16bits / 64] |= uint64_t(1) << (h16bits % 64);
+			goto _end;
+		}
+	}
+	
+	// Issue the prefetch in case LCP turns out to be 2
+	//
+	MEM_PREFETCH(m_treeDepth2[(value >> 40) / 64]);
+	
+	// Since we know the LCP is >= 2, QueryLCP is applicable
+	// 
+	{
+		uint32_t pos;
+		uint64_t _allPositions[4];
+		uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
+		lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+		if (lcpLen == 8)
+		{
+			return false;
+		}
+		if (lcpLen > 2)
+		{
+			bool minKeyUpdated = false;
+			int ilen = m_hashTable.ht[pos].GetIndexKeyLen();
+			assert(ilen <= lcpLen && lcpLen <= m_hashTable.ht[pos].GetFullKeyLen());
+			// Split as needed
+			// Determine whether the path-compression string completely matched
+			//
+			if (lcpLen == m_hashTable.ht[pos].GetFullKeyLen())
+			{
+				// path-compression string matched, no need to split
+				//
+				m_hashTable.ht[pos].AddChild((value >> (56 - lcpLen * 8)) % 256);
+				if (value < m_hashTable.ht[pos].minKey)
+				{
+					minKeyUpdated = true;
+					m_hashTable.ht[pos].minKey = value;
+				}
+			}
+			else
+			{
+				// need to split at unmatch point
+				// (1) Add a new node with indexLen = lcpLen+1, fullKeyLen = ht[pos]'s fullKeyLen,
+				//     childList = ht[pos]'s childList, this is the original subtree
+				// (2) Modify the fullKeyLen of ht[pos] to lcpLen, and childList to have 
+				//     only two children (corresponding byte of ht[pos].minKey and value)
+				//     Now ht[pos] becomes the splitting point
+				//
+				uint64_t minKey = m_hashTable.ht[pos].minKey;
+				uint32_t oldHash18bit = m_hashTable.ht[pos].GetHash18bit();
+#ifndef NDEBUG
+				vector<int> oldChildList = m_hashTable.ht[pos].GetAllChildren();
+				int oldFullKeyLen = m_hashTable.ht[pos].GetFullKeyLen();
+#endif
+
+				// Add new node
+				//
+				{
+					bool exist, failed;
+					uint32_t newHash18bit = XXH::XXHashFn3(minKey, lcpLen + 1);
+					newHash18bit = newHash18bit & ((1<<18) - 1);
+					uint32_t x = m_hashTable.ReservePositionForInsert(lcpLen + 1 /*indexLen*/, 
+						                                              minKey /*key*/,
+						                                              newHash18bit /*hash18bit*/, 
+						                                              exist /*out*/, 
+						                                              failed /*out*/);
+					assert(!exist && !failed);
+					assert(!m_hashTable.ht[x].IsOccupied());
+					m_hashTable.ht[pos].MoveNode(&(m_hashTable.ht[x]));
+					m_hashTable.ht[x].AlterIndexKeyLen(lcpLen + 1);
+					m_hashTable.ht[x].AlterHash18bit(newHash18bit);
+				}
+				
+				// Re-construct ht[pos] (it has been cleared in MoveNode)
+				//
+				{
+					assert(!m_hashTable.ht[pos].IsOccupied());
+					uint64_t z = minKey;
+					if (value < minKey)
+					{
+						z = value;
+						minKeyUpdated = true;
+					}
+					m_hashTable.ht[pos].Init(ilen /*indexLen*/,
+						                     lcpLen /*fullKeyLen*/,
+						                     z /*minKey*/,
+						                     oldHash18bit /*hash18bit*/,
+						                     (minKey >> (56 - 8 * lcpLen)) % 256 /*firstChild*/);
+					m_hashTable.ht[pos].AddChild((value >> (56 - 8 * lcpLen)) % 256);
+				}  
+
+#ifndef NDEBUG
+				// Sanity check newly added nodes
+				//
+				{
+					// Sanity check splitting node
+					//
+					bool found;
+					uint32_t x = m_hashTable.Lookup(ilen, value, found);
+					assert(found);
+					assert(m_hashTable.ht[x].GetIndexKeyLen() == ilen);
+					assert(m_hashTable.ht[x].GetFullKeyLen() == lcpLen);
+					assert(m_hashTable.ht[x].minKey == min(value, minKey));
+					vector<int> ch = m_hashTable.ht[x].GetAllChildren();
+					assert(ch.size() == 2);
+					int expectedChild1 = (value >> (56 - lcpLen * 8)) % 256;
+					int expectedChild2 = (minKey >> (56 - lcpLen * 8)) % 256;
+					if (expectedChild1 > expectedChild2) { swap(expectedChild1, expectedChild2); }
+					assert(ch[0] == expectedChild1);
+					assert(ch[1] == expectedChild2);
+				}
+				{
+					// Sanity check original subtree
+					//
+					bool found;
+					uint32_t x = m_hashTable.Lookup(lcpLen + 1, minKey, found);
+					assert(found);
+					assert(m_hashTable.ht[x].GetIndexKeyLen() == lcpLen + 1);
+					assert(m_hashTable.ht[x].GetFullKeyLen() == oldFullKeyLen);
+					assert(m_hashTable.ht[x].minKey == minKey);
+					vector<int> ch = m_hashTable.ht[x].GetAllChildren();
+					assert(ch.size() == oldChildList.size());
+					rep(i, 0, int(ch.size()) - 1)
+					{
+						assert(ch[i] == oldChildList[i]);
+					}
+				}
+#endif      
+			}
+			// Update minKey along the parent path
+			//
+			if (minKeyUpdated)
+			{
+				for (ilen--; ilen > 2; ilen--)
+				{
+					uint32_t pos = allPositions[ilen - 1];
+#ifndef NDEBUG
+					if (pos != 0)
+					{
+						uint32_t hash18bit = XXH::XXHashFn3(value, ilen);
+						hash18bit = hash18bit & ((1<<18) - 1);
+						uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
+						assert((m_hashTable.ht[pos].hash & 0xf803ffffU) == expectedHash);
+					}
+#endif
+					int shiftLen = 64 - 8 * ilen;
+					if (m_hashTable.ht[pos].IsOccupiedAndNode() && (m_hashTable.ht[pos].minKey >> shiftLen) == (value >> shiftLen))
+					{
+						assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
+						if (value < m_hashTable.ht[pos].minKey)
+						{
+							m_hashTable.ht[pos].minKey = value;
+						}
+						else
+						{
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+	
+_end:
+	// Now we know the true LCP and the tree has been setup with correct splitting, insert node
+	//
+	{
+		bool exist, failed;
+		m_hashTable.Insert(lcpLen + 1 /*indexLen*/,
+		                   8 /*fullKeyLen*/,
+		                   value /*minKey*/, 
+		                   -1 /*firstChild*/,
+		                   exist /*out*/, 
+		                   failed /*out*/);
+		assert(!exist && !failed);
+	}
+	
+	// Finally, if lcp == 2, we need to set the corresponding m_treeDepth2 bit
+	//
+	if (lcpLen == 2)
+	{
+		assert((m_treeDepth2[(value >> 40) / 64] & (uint64_t(1) << ((value >> 40) % 64))) == 0);
+		m_treeDepth2[(value >> 40) / 64] |= uint64_t(1) << ((value >> 40) % 64);
+	}	
+	return true;
 }
 
 }	// namespace MlpSetUInt64

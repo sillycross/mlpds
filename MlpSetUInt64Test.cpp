@@ -367,7 +367,8 @@ TEST(MlpSetUInt64, VitroCuckooHashQueryLcpCorrectness)
 		rep(i,0,numQueries - 1)
 		{
 			uint32_t pos;
-			int len = ht.QueryLCP(q[i], pos /*out*/);
+			uint64_t buffer[4];
+			int len = ht.QueryLCP(q[i], pos /*out*/, reinterpret_cast<uint32_t*>(buffer));
 			actualAnswers[i].first = len;
 			if (len == 2)
 			{
@@ -399,6 +400,167 @@ TEST(MlpSetUInt64, VitroCuckooHashQueryLcpCorrectness)
 			printf("LCP = %d: %d\n", i, cnt[i]);
 		}
 	}
+}
+
+// An incomprehensive assert
+// It checks that every node in StupidTrie exists and has the same information in MlpSet
+// but it does not check the other direction
+//
+void AssertTreeShapeEqualA(StupidUInt64Trie::Trie& st, MlpSetUInt64::MlpSet& ms, bool printDetail)
+{
+	vector<StupidUInt64Trie::TrieNodeDescriptor> nodeList;
+	st.DumpData(nodeList);
+	rept(it, nodeList)
+	{
+		int ilen = it->ilen;
+		int dlen = it->dlen;
+		uint64_t key = it->minv;
+		ReleaseAssert((ms.GetRootPtr()[(key >> 56) / 64] & (uint64_t(1) << ((key >> 56) % 64))) != 0);
+		ReleaseAssert((ms.GetLv1Ptr()[(key >> 48) / 64] & (uint64_t(1) << ((key >> 48) % 64))) != 0);
+		ReleaseAssert((ms.GetLv2Ptr()[(key >> 40) / 64] & (uint64_t(1) << ((key >> 40) % 64))) != 0);
+		if (ilen >= 4)
+		{
+			bool found;
+			uint32_t pos = ms.GetHtPtr()->Lookup(3, key, found);
+			ReleaseAssert(found);
+		}
+		if (ilen >= 3)
+		{
+			bool found;
+			uint32_t pos = ms.GetHtPtr()->Lookup(ilen, key, found);
+			ReleaseAssert(found);
+			ReleaseAssert(ms.GetHtPtr()->ht[pos].GetIndexKeyLen() == ilen);
+			ReleaseAssert(ms.GetHtPtr()->ht[pos].GetFullKeyLen() == dlen);
+			ReleaseAssert(ms.GetHtPtr()->ht[pos].minKey == key);
+			vector<int> ch = ms.GetHtPtr()->ht[pos].GetAllChildren();
+			ReleaseAssert(ch.size() == it->children.size());
+			rep(i, 0, int(ch.size()) - 1)
+			{
+				ReleaseAssert(ch[i] == it->children[i]);
+			}
+		}
+	}
+	if (printDetail)
+	{
+		printf("%d nodes in trie tree\n", int(nodeList.size()));
+	}
+}
+
+// A correctness test for MlpSet.Insert()
+// Inserts a bunch of elements, verify the whole trie shape is as expected after each insertion
+//
+TEST(MlpSetUInt64, MlpSetInsertStepByStepCorrectness)
+{
+	const int N = 14000;
+	vector< vector<int> > choices;
+	choices.resize(8);
+	rep(i,0,7)
+	{
+		int sz = (i <= 1) ? 2 : 5;
+		rep(j,0,sz-1)
+		{
+			int x = rand() % 256;
+			choices[i].push_back(x);
+		}
+	}
+	StupidUInt64Trie::Trie st;
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(N + 1000);
+	rep(steps, 0, N-1)
+	{
+		uint64_t value = 0;
+		rep(i, 0, 7)
+		{
+			value = value * 256 + choices[i][rand() % choices[i].size()];
+		}
+		bool st_inserted = st.Insert(value);
+		bool ms_inserted = ms.Insert(value);
+		ReleaseAssert(st_inserted == ms_inserted);
+		AssertTreeShapeEqualA(st, ms, (steps % (N / 10) == 0) /*printDetail*/);
+		if (steps % (N / 10) == 0)
+		{
+			printf("%d%% completed\n", steps / (N / 10) * 10);
+		}
+	}
+}
+
+// A larger correctness test for MlpSet.Insert()
+// Inserts a bunch of elements, verify the whole trie shape is as expected in the end
+//
+TEST(MlpSetUInt64, MlpSetInsertCorrectness)
+{
+	const int N = 16000000;
+	vector< vector<int> > choices;
+	choices.resize(8);
+	rep(i,0,7)
+	{
+		int sz = (i <= 1) ? 6 : 12;
+		set<int> s;
+		rep(j,0,sz-1)
+		{
+			int x;
+			while (1)
+			{
+				x = rand() % 256;
+				if (!s.count(x)) break;
+			}
+			s.insert(x);
+			choices[i].push_back(x);
+		}
+	}
+	
+	uint64_t* values = new uint64_t[N];
+	ReleaseAssert(values != nullptr);
+	Auto(delete [] values);
+	
+	printf("Generating data N = %d..\n", N);
+	rep(k,0,N-1) 
+	{
+		uint64_t x = 0;
+		rep(i, 0, 7)
+		{
+			x = x * 256 + choices[i][rand() % choices[i].size()];
+		}
+		values[k] = x;
+	}
+	
+	StupidUInt64Trie::Trie st;
+	
+	printf("Stupid trie insertion..\n");
+	int numDistinct = 0;
+	rep(i,0,N-1)
+	{
+		bool x = st.Insert(values[i]);
+		if (x) numDistinct++;
+		if (i % (N / 10) == 0)
+		{
+			printf("%d%% complete\n", i / (N / 10) * 10);
+		}
+	}
+	printf("Insertion complete. %d distinct elements\n", numDistinct);
+	
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(N + 1000);
+	
+	printf("MlpSet insertion..\n");
+	{
+		AutoTimer timer;
+		int numDistinctMlpTrie = 0;
+		rep(i,0,N-1)
+		{
+			bool x = ms.Insert(values[i]);
+			if (x) numDistinctMlpTrie++;
+		}
+		ReleaseAssert(numDistinct == numDistinctMlpTrie);
+	}
+	
+	printf("MlpSet insertion complete. Validating..\n");
+	AssertTreeShapeEqualA(st, ms, true /*printDetail*/);
+	printf("Test complete.\n");
+	printf("Hash table stats: %u slowpath, %u node moves, %u bitmap relocation\n", 
+	       ms.GetHtPtr()->stats.m_slowpathCount, 
+	       ms.GetHtPtr()->stats.m_movedNodesCount, 
+	       ms.GetHtPtr()->stats.m_relocatedBitmapsCount);
 }
 
 }	// annoymous namespace

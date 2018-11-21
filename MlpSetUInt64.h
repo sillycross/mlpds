@@ -70,6 +70,19 @@ struct CuckooHashTableNode
 		return GetOccupyFlag() == 2;
 	}
 	
+	// the assert-less version
+	//
+	bool IsOccupiedAndNode()
+	{
+		return GetOccupyFlag() == 2;
+	}
+	
+	uint32_t GetHash18bit()
+	{
+		assert(IsNode());
+		return hash & ((1 << 18) - 1);
+	}
+	
 	int GetIndexKeyLen()
 	{
 		assert(IsNode());
@@ -82,6 +95,26 @@ struct CuckooHashTableNode
 		int shiftLen = 64 - GetIndexKeyLen() * 8;
 		return minKey >> shiftLen << shiftLen;
 	}
+	
+	// DANGER: make sure you know what you are doing...
+	//
+	void AlterIndexKeyLen(int newIndexKeyLen)
+	{
+		assert(IsNode());
+		hash &= 0xc7ffffffU;
+		hash |= (newIndexKeyLen - 1) << 27;
+	}
+	
+	// DANGER: make sure you know what you are doing...
+	//
+	void AlterHash18bit(uint32_t hash18bit)
+	{
+		assert(IsNode());
+		assert(0 <= hash18bit && hash18bit < (1<<18));
+		hash &= 0xfffc0000;
+		hash |= hash18bit;
+	}
+	
 	
 	int GetFullKeyLen()
 	{
@@ -191,6 +224,10 @@ public:
 	
 	void Init(CuckooHashTableNode* _ht, uint64_t _mask);
 	
+	// Execute Cuckoo displacements to make up a slot for the specified key
+	//
+	uint32_t ReservePositionForInsert(int ilen, uint64_t dkey, uint32_t hash18bit, bool& exist, bool& failed);
+	
 	// Insert a node into the hash table
 	// Since we use path-compression, if the node is not a leaf, it must has at least one child already known
 	// In case it is a leaf, firstChild should be -1
@@ -205,8 +242,12 @@ public:
 	// Since we only store nodes of depth >= 3 in hash table, 
 	// this function will return 2 if the LCP is < 3 (even if the real LCP is < 2).
 	// In case this function returns > 2, resultPos will be set to the index of corresponding node
+	// allPositions must be a buffer at least 32 bytes long. 
+	// allPosition[i] will contain index to hash table for prefix i+1, for i = 2 to 7
+	// If the prefix exists in hash table, the index will always be correct.
+	// If the prefix does not exist, the index will either be 0 or with a small probability an incorrect one 
 	//
-	int QueryLCP(uint64_t key, uint32_t& resultPos);
+	int QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions);
 	
 	// hash table array pointer
 	//
@@ -235,6 +276,17 @@ public:
 	// Initialize the set to hold at most maxSetSize elements
 	//
 	void Init(uint32_t maxSetSize);
+	
+	// Insert an element, returns true if the insertion took place, false if the element already exists
+	//
+	bool Insert(uint64_t value);
+	
+	// For debug purposes only
+	//
+	uint64_t* GetRootPtr() { return m_root; }
+	uint64_t* GetLv1Ptr() { return m_treeDepth1; }
+	uint64_t* GetLv2Ptr() { return m_treeDepth2; }
+	CuckooHashTable* GetHtPtr() { return &m_hashTable; }
 	
 private:
 	// we mmap memory all at once, hold the pointer to the memory chunk

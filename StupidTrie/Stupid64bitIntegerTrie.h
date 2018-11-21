@@ -47,13 +47,13 @@ public:
 	Trie();
 	~Trie();
 	
-	void Insert(uint64_t value);
+	bool Insert(uint64_t value);
 	void DumpData(vector<TrieNodeDescriptor>& result);
 	
 private:
 	node* root;
 	void Destroy(node* cur);
-	void Insert(uint8_t* input);
+	bool Insert(uint8_t* input);
 	uint64_t Dfs(node* cur, vector<TrieNodeDescriptor>& result, int depth, uint64_t curValue);
 };
 
