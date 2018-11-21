@@ -178,7 +178,7 @@ TEST(MlpSetUInt64, VitroCuckooHashLogicCorrectness)
 						else
 						{
 							int offset = (ht.ht[i].hash >> 21) & 7;
-							assert(ht.ht[i+offset-4].IsOccupied() && !ht.ht[i+offset-4].IsNode());
+							ReleaseAssert(ht.ht[i+offset-4].IsOccupied() && !ht.ht[i+offset-4].IsNode());
 						}
 					}
 				}
