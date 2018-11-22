@@ -307,7 +307,7 @@ void CuckooHashTableNode::ExtendToBitMap()
 	
 int CuckooHashTableNode::LowerBoundChild(int child)
 {
-	// TODO
+	assert(IsNode() && !IsLeaf());
 	ReleaseAssert(false);
 }
 	
@@ -317,15 +317,26 @@ bool CuckooHashTableNode::ExistChild(int child)
 	assert(0 <= child && child <= 255);
 	if (IsUsingInternalChildMap())
 	{
-		uint64_t c = childMap;
 		int k = GetChildNum();
+		__m64 z = _mm_cvtsi64_m64(childMap);
+		__m64 cmpTarget = _mm_set1_pi8(child);
+		__m64 res = _mm_cmpeq_pi8(cmpTarget, z);
+		int msk = _mm_movemask_pi8(res);
+		msk &= (1<<k)-1;
+		bool result = (msk != 0);
+		
+#ifndef NDEBUG
+		bool bruteForceResult = false;
+		uint64_t c = childMap;
 		rep(i,0,k-1)
 		{
 			int x = c & 255;
 			c >>= 8;
-			if (x == child) return true;
+			if (x == child) { bruteForceResult = true; break; }
 		}
-		return false;
+		assert(result == bruteForceResult);
+#endif
+		return result;
 	}
 	else if (unlikely(IsExternalPointerBitMap()))
 	{
@@ -362,7 +373,29 @@ void CuckooHashTableNode::AddChild(int child)
 		if (likely(k < 8))
 		{
 			SetChildNum(k+1);
-			childMap |= (uint64_t(child) << (k*8));
+			__m64 z = _mm_cvtsi64_m64(childMap);
+			__m64 cmpTarget = _mm_set1_pi8(child);
+			__m64 res = _mm_max_pu8(cmpTarget, z);
+			res = _mm_cmpeq_pi8(cmpTarget, res);
+			int msk = _mm_movemask_pi8(res);
+			msk &= (1<<k)-1;
+			msk++;
+			int pos = __builtin_ffs(msk);
+			assert(1 <= pos && pos <= k + 1);
+			uint64_t larger = (pos == 8) ? 0 : (childMap >> ((pos-1)*8) << (pos*8));
+			uint64_t smaller = childMap & ((uint64_t(1) << ((pos-1)*8)) - 1);
+			childMap = smaller | (uint64_t(child) << ((pos - 1)*8)) | larger;
+#ifndef NDEBUG
+			uint64_t tmp = childMap;
+			int last = tmp % 256;
+			rep(i, 1, k)
+			{
+				tmp /= 256;
+				int cur = tmp % 256;
+				assert(cur > last);
+				last = cur;
+			}
+#endif
 			return;
 		}
 		ExtendToBitMap();
@@ -388,7 +421,10 @@ vector<int> CuckooHashTableNode::GetAllChildren()
 			ret.push_back(c & 255);
 			c >>= 8;
 		}
-		sort(ret.begin(), ret.end());
+		rep(i, 1, k-1)
+		{
+			assert(ret[i] > ret[i-1]);
+		}
 	}
 	else if (unlikely(IsExternalPointerBitMap()))
 	{
@@ -741,7 +777,7 @@ _slowpath:
 	{
 		stats.m_slowpathCount++;
 		memset(allPositions, 0, 32);
-		uint64_t _buffer[12];
+		uint64_t _buffer[6];
 		uint32_t* buffer = reinterpret_cast<uint32_t*>(_buffer);
 		// h1(5), h1(6), h1(7), h1(8)
 		// h2(5), h2(6), h2(7), h2(8)

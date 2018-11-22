@@ -570,7 +570,7 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 {
 	printf("MlpSet executing workload, enforced dependency = %d\n", (enforcedDep ? 1 : 0));
 	MlpSetUInt64::MlpSet ms;
-	ms.Init(std::min(uint64_t(67108864), workload.numInitialValues + 1000));
+	ms.Init(std::min(uint64_t(67108864), workload.numInitialValues + 1000));	// TODO: remove this after I get my memory chip..
 	
 	printf("MlpSet populating initial values..\n");
 	{
