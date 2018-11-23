@@ -565,6 +565,128 @@ TEST(MlpSetUInt64, MlpSetInsertCorrectness)
 	       ms.GetHtPtr()->stats.m_relocatedBitmapsCount);
 }
 
+// Vitro test for CuckooHashTableNode::LowerBoundChild
+//
+TEST(MlpSetUInt64, VitroHtNodeLowerBoundChild)
+{
+#ifndef NDEBUG
+	const int numTests = 1000000;
+#else
+	const int numTests = 10000000;
+#endif
+	printf("Vitro test for CuckooHashTableNode::LowerBoundChild..\n");
+	{
+		printf("Testing internal child list case..\n");
+		rep(iter, 0, numTests)
+		{
+			int numChild = rand() % 8 + 1;
+			set<int> existed;
+			MlpSetUInt64::CuckooHashTableNode nd;
+			memset(&nd, 0, sizeof(MlpSetUInt64::CuckooHashTableNode));
+			{
+				int x = rand() % 256;
+				nd.Init(1, 1, 0, 0, x);
+				existed.insert(x);
+			}
+			rep(k, 1, numChild-1)
+			{
+				int x;
+				while (1)
+				{
+					x = rand() % 256;
+					if (!existed.count(x)) break;
+				}
+				existed.insert(x);
+				nd.AddChild(x);
+			}
+			ReleaseAssert(nd.IsUsingInternalChildMap());
+			rep(i, 0, 255)
+			{
+				set<int>::iterator it = existed.lower_bound(i);
+				int expected;
+				if (it == existed.end()) expected = -1; else expected = *it;
+				ReleaseAssert(nd.LowerBoundChild(i) == expected);
+			}
+		}
+	}
+	{
+		printf("Testing bitmap case..\n");
+		rep(iter, 0, numTests)
+		{
+			int numChild = (rand() % 10 == 0) ? (rand() % 248 + 9) : (rand() % 20 + 9);
+			set<int> existed;
+			MlpSetUInt64::CuckooHashTableNode nd[7];
+			memset(nd, 0, sizeof(MlpSetUInt64::CuckooHashTableNode) * 7);
+			{
+				int x = rand() % 256;
+				nd[3].Init(1, 1, 0, 0, x);
+				existed.insert(x);
+			}
+			rep(k, 1, numChild-1)
+			{
+				int x;
+				while (1)
+				{
+					x = rand() % 256;
+					if (!existed.count(x)) break;
+				}
+				existed.insert(x);
+				nd[3].AddChild(x);
+			}
+			ReleaseAssert(!nd[3].IsUsingInternalChildMap() && !nd[3].IsExternalPointerBitMap());
+			rep(i, 0, 255)
+			{
+				set<int>::iterator it = existed.lower_bound(i);
+				int expected;
+				if (it == existed.end()) expected = -1; else expected = *it;
+				ReleaseAssert(nd[3].LowerBoundChild(i) == expected);
+			}
+		}
+	}
+	{
+		printf("Testing pointer bitmap case..\n");
+		rep(iter, 0, numTests)
+		{
+			int numChild = (rand() % 10 == 0) ? (rand() % 248 + 9) : (rand() % 20 + 9);
+			set<int> existed;
+			MlpSetUInt64::CuckooHashTableNode nd[7];
+			memset(nd, 0, sizeof(MlpSetUInt64::CuckooHashTableNode) * 7);
+			rep(k, 0, 6)
+			{
+				if (k != 3)
+				{
+					nd[k].hash = 3U << 30;
+					assert(nd[k].IsOccupied());
+				}
+			}
+			{
+				int x = rand() % 256;
+				nd[3].Init(1, 1, 0, 0, x);
+				existed.insert(x);
+			}
+			rep(k, 1, numChild-1)
+			{
+				int x;
+				while (1)
+				{
+					x = rand() % 256;
+					if (!existed.count(x)) break;
+				}
+				existed.insert(x);
+				nd[3].AddChild(x);
+			}
+			ReleaseAssert(!nd[3].IsUsingInternalChildMap() && nd[3].IsExternalPointerBitMap());
+			rep(i, 0, 255)
+			{
+				set<int>::iterator it = existed.lower_bound(i);
+				int expected;
+				if (it == existed.end()) expected = -1; else expected = *it;
+				ReleaseAssert(nd[3].LowerBoundChild(i) == expected);
+			}
+		}
+	}
+}
+
 template<bool enforcedDep>
 void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 {

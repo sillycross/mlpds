@@ -305,10 +305,113 @@ void CuckooHashTableNode::ExtendToBitMap()
 	}
 }
 	
-int CuckooHashTableNode::LowerBoundChild(int child)
+int CuckooHashTableNode::LowerBoundChild(uint32_t child)
 {
 	assert(IsNode() && !IsLeaf());
-	ReleaseAssert(false);
+	assert(0 <= child && child <= 255);
+	if (IsUsingInternalChildMap())
+	{
+		if (child == 0) { return childMap & 255; }
+		int k = GetChildNum();
+		__m64 z = _mm_cvtsi64_m64(childMap);
+		__m64 cmpTarget = _mm_set1_pi8(child - 1);
+		__m64 res = _mm_max_pu8(cmpTarget, z);
+		res = _mm_cmpeq_pi8(cmpTarget, res);
+		int msk = _mm_movemask_pi8(res);
+		msk &= (1<<k)-1;
+		msk++;
+		int pos = __builtin_ffs(msk);
+		assert(1 <= pos && pos <= k + 1);
+		if (pos == k+1) 
+		{ 
+			return -1; 
+		}
+		return (childMap >> ((pos-1)*8)) & 255;
+	}
+	else if (unlikely(IsExternalPointerBitMap()))
+	{
+		uint64_t* ptr = reinterpret_cast<uint64_t*>(childMap);
+		int idx = child / 64;
+		uint64_t x = ptr[idx] >> (child % 64);
+		if (x) 
+		{ 
+			return __builtin_ctzll(x) + child; 
+		}
+		idx++;
+		while (idx < 4)
+		{
+			if (ptr[idx] != 0)
+			{
+				return __builtin_ctzll(ptr[idx]) + idx * 64;
+			}
+			idx++;
+		}
+		return -1;
+	}
+	else
+	{
+		int offset = (hash >> 21) & 7;
+		if (child < 64)
+		{
+			uint64_t x = childMap >> child;
+			if (x)
+			{	
+				return __builtin_ctzll(x) + child; 
+			}
+			uint64_t* ptr = reinterpret_cast<uint64_t*>(&(this[offset-4]));
+			x = ptr[0] & 0xffffffff3fffffffULL;
+			x |= uint64_t((hash >> 18) & 3) << 30;
+			if (x)
+			{
+				return __builtin_ctzll(x) + 64;
+			}
+			rep(k, 1, 2)
+			{
+				if (ptr[k])
+				{
+					return __builtin_ctzll(ptr[k]) + (k+1) * 64;
+				}
+			}
+			return -1;
+		}
+		else if (child < 128)
+		{
+			uint64_t* ptr = reinterpret_cast<uint64_t*>(&(this[offset-4]));
+			uint64_t x = ptr[0] & 0xffffffff3fffffffULL;
+			x |= uint64_t((hash >> 18) & 3) << 30;
+			x >>= (child - 64);
+			if (x)
+			{
+				return __builtin_ctzll(x) + child;
+			}
+			rep(k, 1, 2)
+			{
+				if (ptr[k])
+				{
+					return __builtin_ctzll(ptr[k]) + (k+1) * 64;
+				}
+			}
+			return -1;
+		}
+		else
+		{
+			uint64_t* ptr = reinterpret_cast<uint64_t*>(&(this[offset-4]));
+			int idx = child / 64 - 1;
+			uint64_t x = ptr[idx] >> (child % 64);
+			if (x)
+			{
+				return __builtin_ctzll(x) + child;
+			}
+			if (idx < 2)
+			{
+				if (ptr[2])
+				{
+					return __builtin_ctzll(ptr[2]) + 192;
+				}
+			}
+			return -1;
+		}
+	}	
 }
 	
 bool CuckooHashTableNode::ExistChild(int child)

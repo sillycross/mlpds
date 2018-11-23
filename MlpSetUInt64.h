@@ -115,7 +115,6 @@ struct CuckooHashTableNode
 		hash |= hash18bit;
 	}
 	
-	
 	int GetFullKeyLen()
 	{
 		assert(IsNode());
@@ -177,7 +176,7 @@ struct CuckooHashTableNode
 	// Find minimum child >= given child
 	// returns -1 if larger child does not exist
 	//
-	int LowerBoundChild(int child);
+	int LowerBoundChild(uint32_t child);
 	
 	// Check if given child exists
 	//
