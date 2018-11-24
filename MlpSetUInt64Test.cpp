@@ -568,7 +568,7 @@ TEST(MlpSetUInt64, MlpSetInsertCorrectness)
 
 // Vitro test for CuckooHashTableNode::LowerBoundChild
 //
-TEST(MlpSetUInt64, VitroHtNodeLowerBoundChild)
+TEST(MlpSetUInt64, VitroHtNodeLowerBoundChildCorrectness)
 {
 #ifndef NDEBUG
 	const int numTests = 1000000;
