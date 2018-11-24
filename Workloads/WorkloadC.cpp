@@ -1,8 +1,8 @@
-#include "WorkloadA.h"
+#include "WorkloadC.h"
 #include "common.h"
 #include "WorkloadInterface.h"
 
-namespace WorkloadA
+namespace WorkloadC
 {
 
 WorkloadUInt64 GenWorkload16M()
@@ -22,7 +22,6 @@ WorkloadUInt64 GenWorkload16M()
 		{
 			key = key * 256 + rand() % 64 + 32;
 		}
-		
 		workload.initialValues[i] = key;
 	}
 	rep(i, 0, Q-1)
@@ -35,13 +34,13 @@ WorkloadUInt64 GenWorkload16M()
 		else
 		{
 			uint64_t key = 0;
-			rep(k, 0, 1)
-			{
-				key = key * 256 + rand() % 64 + 32;
-			}
 			rep(k, 2, 7)
 			{
 				key = key * 256 + rand() % 5 + 48;
+			}
+			rep(k, 0, 1)
+			{
+				key = key * 256 + rand() % 64 + 32;
 			}
 			workload.operations[i].key = key;
 		}
@@ -59,13 +58,13 @@ WorkloadUInt64 GenWorkload80M()
 	rep(i, 0, N-1)
 	{
 		uint64_t key = 0;
-		rep(k, 0, 1)
-		{
-			key = key * 256 + rand() % 96 + 32;
-		}
 		rep(k, 2, 7)
 		{
 			key = key * 256 + rand() % 6 + 48;
+		}
+		rep(k, 0, 1)
+		{
+			key = key * 256 + rand() % 96 + 32;
 		}
 		workload.initialValues[i] = key;
 	}
@@ -79,13 +78,13 @@ WorkloadUInt64 GenWorkload80M()
 		else
 		{
 			uint64_t key = 0;
-			rep(k, 0, 1)
-			{
-				key = key * 256 + rand() % 96 + 32;
-			}
 			rep(k, 2, 7)
 			{
 				key = key * 256 + rand() % 6 + 48;
+			}
+			rep(k, 0, 1)
+			{
+				key = key * 256 + rand() % 96 + 32;
 			}
 			workload.operations[i].key = key;
 		}
@@ -94,5 +93,5 @@ WorkloadUInt64 GenWorkload80M()
 	return workload;
 }
 
-}	// namespace WorkloadA
+}	// namespace WorkloadC
 

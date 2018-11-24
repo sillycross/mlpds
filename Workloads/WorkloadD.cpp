@@ -1,8 +1,8 @@
-#include "WorkloadA.h"
+#include "WorkloadD.h"
 #include "common.h"
 #include "WorkloadInterface.h"
 
-namespace WorkloadA
+namespace WorkloadD
 {
 
 WorkloadUInt64 GenWorkload16M()
@@ -22,29 +22,21 @@ WorkloadUInt64 GenWorkload16M()
 		{
 			key = key * 256 + rand() % 64 + 32;
 		}
-		
 		workload.initialValues[i] = key;
 	}
 	rep(i, 0, Q-1)
 	{
-		workload.operations[i].type = WorkloadOperationType::EXIST;
-		if (rand() % 4 != 0)
+		workload.operations[i].type = WorkloadOperationType::LOWER_BOUND;
+		uint64_t key = 0;
+		rep(k, 2, 7)
 		{
-			workload.operations[i].key = workload.initialValues[rand() % N];
+			key = key * 256 + rand() % 5 + 48;
 		}
-		else
+		rep(k, 0, 1)
 		{
-			uint64_t key = 0;
-			rep(k, 0, 1)
-			{
-				key = key * 256 + rand() % 64 + 32;
-			}
-			rep(k, 2, 7)
-			{
-				key = key * 256 + rand() % 5 + 48;
-			}
-			workload.operations[i].key = key;
+			key = key * 256 + rand() % 64 + 32;
 		}
+		workload.operations[i].key = key;
 	}
 	workload.PopulateExpectedResultsUsingStdSet();
 	return workload;
@@ -59,40 +51,33 @@ WorkloadUInt64 GenWorkload80M()
 	rep(i, 0, N-1)
 	{
 		uint64_t key = 0;
-		rep(k, 0, 1)
-		{
-			key = key * 256 + rand() % 96 + 32;
-		}
 		rep(k, 2, 7)
 		{
 			key = key * 256 + rand() % 6 + 48;
+		}
+		rep(k, 0, 1)
+		{
+			key = key * 256 + rand() % 96 + 32;
 		}
 		workload.initialValues[i] = key;
 	}
 	rep(i, 0, Q-1)
 	{
-		workload.operations[i].type = WorkloadOperationType::EXIST;
-		if (rand() % 4 != 0)
+		workload.operations[i].type = WorkloadOperationType::LOWER_BOUND;
+		uint64_t key = 0;
+		rep(k, 2, 7)
 		{
-			workload.operations[i].key = workload.initialValues[rand() % N];
+			key = key * 256 + rand() % 6 + 48;
 		}
-		else
+		rep(k, 0, 1)
 		{
-			uint64_t key = 0;
-			rep(k, 0, 1)
-			{
-				key = key * 256 + rand() % 96 + 32;
-			}
-			rep(k, 2, 7)
-			{
-				key = key * 256 + rand() % 6 + 48;
-			}
-			workload.operations[i].key = key;
+			key = key * 256 + rand() % 96 + 32;
 		}
+		workload.operations[i].key = key;
 	}
 	workload.PopulateExpectedResultsUsingStdSet();
 	return workload;
 }
 
-}	// namespace WorkloadA
+}	// namespace WorkloadD
 

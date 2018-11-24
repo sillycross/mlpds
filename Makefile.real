@@ -11,7 +11,7 @@ EXTRA_FLAGS := -mavx2
 
 # header file base paths for includes, space separated
 #
-INCLUDE_DIRS := . ./Workloads
+INCLUDE_DIRS := . ./Workloads  ./third_party/hot
 
 ##########################################################
 
@@ -23,7 +23,7 @@ else
 endif
 
 SRC_RELDIR = ../../
-FLAGS += -std=c++11 -isystem $(SRC_RELDIR)./gtest/include -pthread -g
+FLAGS += -std=c++14 -march=native -isystem $(SRC_RELDIR)./gtest/include -pthread -g
 FLAGS += $(EXTRA_FLAGS)
 
 INCLUDE_DIRS_FLAGS := $(addprefix -I$(SRC_RELDIR),$(INCLUDE_DIRS))
