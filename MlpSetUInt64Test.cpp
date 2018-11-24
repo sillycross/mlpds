@@ -687,6 +687,118 @@ TEST(MlpSetUInt64, VitroHtNodeLowerBoundChild)
 	}
 }
 
+// Correctness test for MlpSet.LowerBound()
+// This test mainly tests logic for corner case (first 2 lvls of the tree, which are not stored in hash table)
+//
+TEST(MlpSetUInt64, LowerBoundCornerLogicCorrectness)
+{
+	printf("MlpSet LowerBound Corner logic test..\n");
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(4194304);
+	set<uint64_t> S;
+	rep(iter,0,4000000)
+	{	
+		{
+			uint64_t key = 0;
+			rep(k, 0, 7) key = key * 256 + rand() % 256;
+			bool insExpected = S.insert(key).second;
+			bool insActual = ms.Insert(key);
+			ReleaseAssert(insExpected == insActual);
+		}
+		rep(ts, 0, 8)
+		{
+			uint64_t key = 0;
+			rep(k, 0, 7) key = key * 256 + rand() % 256;
+			set<uint64_t>::iterator it = S.lower_bound(key);
+			bool found;
+			uint64_t ret = ms.LowerBound(key, found);
+			ReleaseAssert(found == (it != S.end()));
+			if (found)
+			{
+				ReleaseAssert(*it == ret);
+			}
+			else
+			{
+				ReleaseAssert(ret == 0xffffffffffffffffULL);
+			}
+		}
+		{
+			uint64_t key = *(--S.end());
+			key++;
+			bool found;
+			uint64_t ret = ms.LowerBound(key, found);
+			ReleaseAssert(!found && ret == 0xffffffffffffffffULL);
+		}
+		if (iter % 400000 == 0)
+		{
+			printf("%d%% completed\n", iter / 400000 * 10);
+		}
+	}
+}
+
+// Correctness test for MlpSet.LowerBound()
+// This test focus more on the hash table part
+//
+TEST(MlpSetUInt64, LowerBoundCorrectness)
+{
+	printf("MlpSet LowerBound test..\n");
+	printf("Inserting elements..\n");
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(4194304);
+	set<uint64_t> S;
+	rep(iter,0,4000000)
+	{	
+		uint64_t key = 0;
+		rep(k, 0, 1) key = key * 256 + rand() % 64 + 32;
+		rep(k, 2, 7) key = key * 256 + rand() % 4 + 48;
+		bool insExpected = S.insert(key).second;
+		bool insActual = ms.Insert(key);
+		ReleaseAssert(insExpected == insActual);
+	}
+	printf("Insertion completed distinct item count = %d\n", int(S.size()));
+	
+	rep(iter,0,40000000)
+	{
+		uint64_t key;
+		if (rand() % 20 == 0)
+		{
+			uint64_t maxv = *(--S.end());
+			uint64_t randv = 0;
+			rep(i,0,7) randv = randv * 256 + rand() % 256;
+			randv %= (0xffffffffffffffffULL - maxv);
+			key = maxv + 1 + randv;
+		}
+		else if (rand() % 4 == 0)
+		{
+			key = 0;
+			rep(k, 0, 7) key = key * 256 + rand() % 256;
+		}
+		else 
+		{
+			int shift = rand() % 4;
+			key = 0;
+			rep(k, 0, 1) key = key * 256 + rand() % 64 + 32;
+			rep(k, 2, 7) key = key * 256 + rand() % 4 + 48 + shift;
+		}
+		set<uint64_t>::iterator it = S.lower_bound(key);
+		bool found;
+		uint64_t ret = ms.LowerBound(key, found);
+		ReleaseAssert(found == (it != S.end()));
+		if (found)
+		{
+			ReleaseAssert(*it == ret);
+		}
+		else
+		{
+			ReleaseAssert(ret == 0xffffffffffffffffULL);
+		}
+		if (iter % 4000000 == 0)
+		{
+			printf("%d%% completed\n", iter / 4000000 * 10);
+		}
+	}
+}
+		
 template<bool enforcedDep>
 void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 {

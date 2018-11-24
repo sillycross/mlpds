@@ -237,6 +237,10 @@ public:
 	//
 	uint32_t Lookup(int ilen, uint64_t ikey, bool& found);
 
+	// Single point lookup on a key that is supposed to exist, returns index in hash table
+	//
+	uint32_t LookupMustExist(int ilen, uint64_t ikey);
+	
 	// Fast LCP query using vectorized hash computation and memory level parallelism
 	// Since we only store nodes of depth >= 3 in hash table, 
 	// this function will return 2 if the LCP is < 3 (even if the real LCP is < 2).
@@ -283,6 +287,11 @@ public:
 	// Returns whether the specified value exists in the set
 	//
 	bool Exist(uint64_t value);
+	
+	// Returns the minimum value greater or equal to the specified value
+	// set `found` to false and return -1 if specified value is larger than all values in set 
+	//
+	uint64_t LowerBound(uint64_t value, bool& found);
 	
 	// For debug purposes only
 	//

@@ -304,7 +304,28 @@ void CuckooHashTableNode::ExtendToBitMap()
 		BitMapSet(child);
 	}
 }
-	
+
+static int Bitmap256LowerBound(uint64_t* ptr, uint32_t child)
+{
+	assert(0 <= child && child <= 255);
+	int idx = child / 64;
+	uint64_t x = ptr[idx] >> (child % 64);
+	if (x) 
+	{ 
+		return __builtin_ctzll(x) + child; 
+	}
+	idx++;
+	while (idx < 4)
+	{
+		if (ptr[idx] != 0)
+		{
+			return __builtin_ctzll(ptr[idx]) + idx * 64;
+		}
+		idx++;
+	}
+	return -1;
+}
+
 int CuckooHashTableNode::LowerBoundChild(uint32_t child)
 {
 	assert(IsNode() && !IsLeaf());
@@ -331,22 +352,7 @@ int CuckooHashTableNode::LowerBoundChild(uint32_t child)
 	else if (unlikely(IsExternalPointerBitMap()))
 	{
 		uint64_t* ptr = reinterpret_cast<uint64_t*>(childMap);
-		int idx = child / 64;
-		uint64_t x = ptr[idx] >> (child % 64);
-		if (x) 
-		{ 
-			return __builtin_ctzll(x) + child; 
-		}
-		idx++;
-		while (idx < 4)
-		{
-			if (ptr[idx] != 0)
-			{
-				return __builtin_ctzll(ptr[idx]) + idx * 64;
-			}
-			idx++;
-		}
-		return -1;
+		return Bitmap256LowerBound(ptr, child);
 	}
 	else
 	{
@@ -783,6 +789,31 @@ uint32_t CuckooHashTable::Lookup(int ilen, uint64_t ikey, bool& found)
 	return -1;
 }
 
+uint32_t CuckooHashTable::LookupMustExist(int ilen, uint64_t ikey)
+{
+	assert(m_hasCalledInit);
+	
+	uint32_t hash18bit = XXH::XXHashFn3(ikey, ilen);
+	hash18bit = hash18bit & ((1<<18) - 1);
+	uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
+	int shiftLen = 64 - 8 * ilen;
+	uint64_t shiftedKey = ikey >> shiftLen;
+	
+	uint32_t h1, h2;
+	h1 = XXH::XXHashFn1(ikey, ilen) & htMask;
+	h2 = XXH::XXHashFn2(ikey, ilen) & htMask;
+	MEM_PREFETCH(ht[h1]);
+	MEM_PREFETCH(ht[h2]);
+	if (ht[h1].IsEqual(expectedHash, shiftLen, shiftedKey))
+	{
+		return h1;
+	}
+#ifndef NDEBUG
+	assert(ht[h2].IsEqual(expectedHash, shiftLen, shiftedKey));
+#endif
+	return h2;
+}
+
 int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions)
 {
 	assert(m_hasCalledInit);
@@ -813,6 +844,9 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPo
 	h5 |= 0x8000000080000000ULL | (3ULL << 59) | (2ULL << 27);
 	__m128i expect2 = _mm_set_epi64x(h5, h5);
 	
+	// TODO: 
+	// experiment with the performance impact of early exit
+	//
 	data1 = _mm_and_si128(data1, HASH_EXPECT_MASK2);
 	data2 = _mm_and_si128(data2, HASH_EXPECT_MASK2);
 	data4 = _mm_and_si128(data4, HASH_EXPECT_MASK2);
@@ -1253,6 +1287,160 @@ bool MlpSet::Exist(uint64_t value)
 	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
 	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
 	return (lcpLen == 8);
+}
+
+uint64_t MlpSet::LowerBound(uint64_t value, bool& found)
+{
+	assert(m_hasCalledInit);
+	found = true;
+	uint32_t pos;
+	uint64_t _allPositions[4];
+	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
+	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+	if (lcpLen == 8)
+	{
+		return value;
+	}
+	if (lcpLen == 2)
+	{
+		goto _flat_mapping;
+	}
+	
+	// lcp in hash table
+	//
+	{
+		int dlen = m_hashTable.ht[pos].GetFullKeyLen();
+		if (dlen == lcpLen)
+		{
+			// path compression string matches, lower bound on child
+			//
+			uint32_t child = (value >> (56 - dlen * 8)) & 255;
+			int lbChild = m_hashTable.ht[pos].LowerBoundChild(child);
+			if (lbChild == -1) 
+			{
+				goto _parent;
+			}
+			assert(lbChild != child);
+			// return the minimum value in lbChild subtree
+			//
+			uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
+			keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
+			uint32_t minKeyPos = m_hashTable.LookupMustExist(dlen + 1, keyToFind);
+			return m_hashTable.ht[minKeyPos].minKey;
+		}
+		else
+		{
+			// path compression string does not match
+			// either the given value is smaller than the whole subtree, or larger than the whole subtree
+			//
+			if (value < m_hashTable.ht[pos].minKey)
+			{
+				// smaller than whole subtree, result is just subtreeMin
+				//
+				return m_hashTable.ht[pos].minKey;
+			}
+			else
+			{	
+				// larger than subtreeMax, need to visit parent path
+				//
+				goto _parent;
+			}
+		}
+	}
+	
+_parent:
+	// The specified value is larger than the maximum in the subtree
+	// We need to return the smallest value larger than subtreeMax by visiting the parent path
+	// 
+	{
+		int ilen = m_hashTable.ht[pos].GetIndexKeyLen() - 1;
+		for (; ilen > 2; ilen--)
+		{
+			uint32_t pos = allPositions[ilen - 1];
+#ifndef NDEBUG
+			if (pos != 0)
+			{
+				uint32_t hash18bit = XXH::XXHashFn3(value, ilen);
+				hash18bit = hash18bit & ((1<<18) - 1);
+				uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
+				assert((m_hashTable.ht[pos].hash & 0xf803ffffU) == expectedHash);
+			}
+#endif
+			int shiftLen = 64 - 8 * ilen;
+			if (m_hashTable.ht[pos].IsOccupiedAndNode() && (m_hashTable.ht[pos].minKey >> shiftLen) == (value >> shiftLen))
+			{
+				assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
+				int dlen = m_hashTable.ht[pos].GetFullKeyLen();
+				assert((m_hashTable.ht[pos].minKey >> (64 - dlen * 8)) == (value >> (64 - dlen * 8)));
+				uint32_t child = (value >> (56 - dlen * 8)) & 255;
+				if (child < 255)
+				{
+					int lbChild = m_hashTable.ht[pos].LowerBoundChild(child + 1);
+					if (lbChild != -1) 
+					{
+						assert(lbChild != child);
+						// return the minimum value in lbChild subtree
+						//
+						uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
+						keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
+						uint32_t minKeyPos = m_hashTable.LookupMustExist(dlen + 1, keyToFind);
+						return m_hashTable.ht[minKeyPos].minKey;
+					}
+				}
+			}
+		}
+	}
+	
+_flat_mapping:
+	// We have reached lv2 of the tree, which are stored in the flat bitarray instead of the hash table
+	//
+	uint64_t high24bits = value >> 40;
+	if ((high24bits & 255) < 255)
+	{
+		int lv2LbChild = Bitmap256LowerBound(m_treeDepth2 + (high24bits >> 8) * 4, (high24bits & 255) + 1);
+		if (lv2LbChild != -1)
+		{
+			uint64_t keyToFind = ((high24bits >> 8) << 48) | (uint64_t(lv2LbChild) << 40);
+			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
+			return m_hashTable.ht[minKeyPos].minKey;
+		}
+	}
+	// check lv1 of tree
+	//
+	if (((high24bits >> 8) & 255) < 255)
+	{
+		int lv1LbChild = Bitmap256LowerBound(m_treeDepth1 + (high24bits >> 16) * 4, ((high24bits >> 8) & 255) + 1);
+		if (lv1LbChild != -1)
+		{
+			uint64_t high16bits = ((high24bits >> 16) << 8) | lv1LbChild;
+			int lv2FirstChild = Bitmap256LowerBound(m_treeDepth2 + high16bits * 4, 0 /*child*/);
+			assert(lv2FirstChild != -1);
+			uint64_t keyToFind = (high16bits << 48) | (uint64_t(lv2FirstChild) << 40);
+			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
+			return m_hashTable.ht[minKeyPos].minKey;
+		}
+	}
+	// finally check root
+	//
+	if ((high24bits >> 16) < 255)
+	{
+		int lv0LbChild = Bitmap256LowerBound(m_root, (high24bits >> 16) + 1);
+		if (lv0LbChild != -1)
+		{
+			int lv1FirstChild = Bitmap256LowerBound(m_treeDepth1 + lv0LbChild * 4, 0 /*child*/);
+			assert(lv1FirstChild != -1);
+			uint64_t high16bits = (lv0LbChild << 8) | lv1FirstChild;
+			int lv2FirstChild = Bitmap256LowerBound(m_treeDepth2 + high16bits * 4, 0 /*child*/);
+			assert(lv2FirstChild != -1);
+			uint64_t keyToFind = (high16bits << 48) | (uint64_t(lv2FirstChild) << 40);
+			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
+			return m_hashTable.ht[minKeyPos].minKey;
+		}
+	}
+	// not found
+	//
+	found = false;
+	return 0xffffffffffffffffULL;
 }
 
 }	// namespace MlpSetUInt64
