@@ -5,7 +5,8 @@
 enum WorkloadOperationType : uint32_t
 {
 	INSERT,
-	EXIST
+	EXIST,
+	LOWER_BOUND
 };
 
 struct WorkloadOperationUInt64

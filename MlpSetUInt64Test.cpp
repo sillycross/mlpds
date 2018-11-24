@@ -3,6 +3,7 @@
 #include "StupidTrie/Stupid64bitIntegerTrie.h"
 #include "WorkloadInterface.h"
 #include "WorkloadA.h"
+#include "WorkloadB.h"
 #include "gtest/gtest.h"
 
 namespace {
@@ -840,6 +841,12 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 						answer = ms.Exist(realKey);
 						break;
 					}
+					case WorkloadOperationType::LOWER_BOUND:
+					{
+						bool found;
+						answer = ms.LowerBound(realKey, found);
+						break;
+					}
 				}
 				workload.results[i] = answer;
 				lastAnswer = answer;
@@ -860,6 +867,12 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 					case WorkloadOperationType::EXIST:
 					{
 						answer = ms.Exist(workload.operations[i].key);
+						break;
+					}
+					case WorkloadOperationType::LOWER_BOUND:
+					{
+						bool found;
+						answer = ms.LowerBound(workload.operations[i].key, found);
 						break;
 					}
 				}
@@ -931,6 +944,45 @@ TEST(MlpSetUInt64, WorkloadA_80M_Dep)
 	}
 	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
 }
+
+TEST(MlpSetUInt64, WorkloadB_16M_Dep)
+{
+	printf("Generating workload WorkloadB 16M ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadB::GenWorkload16M();
+	Auto(workload.FreeMemory());
+	
+	workload.EnforceDependency();
+	
+	printf("Executing workload..\n");
+	MlpSetExecuteWorkload<true>(workload);
+	
+	printf("Validating results..\n");
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+	}
+	printf("Finished %d queries\n", int(workload.numOperations));
+}
+
+TEST(MlpSetUInt64, WorkloadB_80M_Dep)
+{
+	printf("Generating workload WorkloadB 80M ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadB::GenWorkload80M();
+	Auto(workload.FreeMemory());
+	
+	workload.EnforceDependency();
+	
+	printf("Executing workload..\n");
+	MlpSetExecuteWorkload<true>(workload);
+	
+	printf("Validating results..\n");
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+	}
+	printf("Finished %d queries\n", int(workload.numOperations));
+}
+
 
 }	// annoymous namespace
 

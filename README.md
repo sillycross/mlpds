@@ -13,6 +13,15 @@ Fun with data structures utilizing memory level parallelism (working in progress
   * **libart**: 1.19M insertion/sec, 1.35M query/sec
   * **std::set**: 0.71M insertion/sec, 0.67M query/sec
 
+* 64-bit integers, 16M data set, 20M lower_bound query
+  * **MlpSet**: 3.77M query/sec
+  * **libart**: (does not support lower_bound)
+  * **std::set**: 0.94M query/sec
+  
+* Same setup as above, but 80M data set 
+  * **MlpSet**: 3.56M query/sec
+  * **std::set**: 0.67M query/sec
+
 * more to come...
 
 ### List of third-party libraries used in this project

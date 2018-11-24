@@ -83,6 +83,19 @@ void WorkloadUInt64::PopulateExpectedResultsUsingStdSet()
 					expectedResults[i] = S.count(operations[i].key);
 					break;
 				}
+				case WorkloadOperationType::LOWER_BOUND:
+				{
+					set<uint64_t>::iterator it = S.lower_bound(operations[i].key);
+					if (it == S.end())
+					{
+						expectedResults[i] = 0xffffffffffffffffULL;
+					}
+					else
+					{
+						expectedResults[i] = *it;
+					}
+					break;
+				}
 				default:
 				{
 					ReleaseAssert(false);
