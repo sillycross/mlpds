@@ -14,15 +14,14 @@ WorkloadUInt64 GenWorkload16M()
 	rep(i, 0, N-1)
 	{
 		uint64_t key = 0;
-		rep(k, 2, 7)
-		{
-			key = key * 256 + rand() % 5 + 48;
-		}
 		rep(k, 0, 1)
 		{
 			key = key * 256 + rand() % 64 + 32;
 		}
-		
+		rep(k, 2, 7)
+		{
+			key = key * 256 + rand() % 5 + 48;
+		}
 		workload.initialValues[i] = key;
 	}
 	rep(i, 0, Q-1)
