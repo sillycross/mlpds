@@ -884,7 +884,51 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 	printf("MlpSet workload completed.\n");
 }
 
-TEST(MlpSetUInt64, WorkloadA_16M)
+void NO_INLINE MlpSetExecuteWorkloadPromise(WorkloadUInt64& workload)
+{
+	MlpSetUInt64::MlpSet ms;
+	ms.Init(std::min(uint64_t(67108864), workload.numInitialValues + 1000));	// TODO: remove this after I get my memory chip..
+	
+	printf("MlpSet populating initial values..\n");
+	{
+		AutoTimer timer;
+		rep(i, 0, workload.numInitialValues - 1)
+		{
+			ms.Insert(workload.initialValues[i]);
+		}
+	}
+	
+	printf("MlpSet executing workload..\n");
+	{
+		AutoTimer timer;
+		MlpSetUInt64::MlpSet::Promise p = ms.LowerBound(workload.operations[0].key);
+		rep(i, 1, workload.numOperations - 1)
+		{
+			MlpSetUInt64::MlpSet::Promise p2 = ms.LowerBound(workload.operations[i].key);
+			if (p.IsValid())
+			{
+				workload.results[i-1] = p.Resolve();
+			}
+			else
+			{
+				workload.results[i-1] = 0xffffffffffffffffULL;
+			}
+			p = p2;
+		}
+		if (p.IsValid())
+		{
+			workload.results[workload.numOperations - 1] = p.Resolve();
+		}
+		else
+		{
+			workload.results[workload.numOperations - 1] = 0xffffffffffffffffULL;
+		}
+	}
+	
+	printf("MlpSet workload completed.\n");
+}
+
+TEST(MlpSetUInt64, WorkloadA_16M_NoDep)
 {
 	printf("Generating workload WorkloadA 16M NO-ENFORCE dep..\n");
 	WorkloadUInt64 workload = WorkloadA::GenWorkload16M();
@@ -945,6 +989,23 @@ TEST(MlpSetUInt64, WorkloadA_80M_Dep)
 	printf("Finished %d queries %d positives\n", int(workload.numOperations), int(sum));
 }
 
+TEST(MlpSetUInt64, WorkloadB_16M_NoDep)
+{
+	printf("Generating workload WorkloadB 16M ENFORCE dep..\n");
+	WorkloadUInt64 workload = WorkloadB::GenWorkload16M();
+	Auto(workload.FreeMemory());
+
+	printf("Executing workload..\n");
+	MlpSetExecuteWorkload<false>(workload);
+	
+	printf("Validating results..\n");
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+	}
+	printf("Finished %d queries\n", int(workload.numOperations));
+}
+
 TEST(MlpSetUInt64, WorkloadB_16M_Dep)
 {
 	printf("Generating workload WorkloadB 16M ENFORCE dep..\n");
@@ -955,6 +1016,23 @@ TEST(MlpSetUInt64, WorkloadB_16M_Dep)
 	
 	printf("Executing workload..\n");
 	MlpSetExecuteWorkload<true>(workload);
+	
+	printf("Validating results..\n");
+	rep(i, 0, workload.numOperations - 1)
+	{
+		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
+	}
+	printf("Finished %d queries\n", int(workload.numOperations));
+}
+
+TEST(MlpSetUInt64, WorkloadB_16M_Promise)
+{
+	printf("Generating workload WorkloadB 16M (Promise)..\n");
+	WorkloadUInt64 workload = WorkloadB::GenWorkload16M();
+	Auto(workload.FreeMemory());
+	
+	printf("Executing workload..\n");
+	MlpSetExecuteWorkloadPromise(workload);
 	
 	printf("Validating results..\n");
 	rep(i, 0, workload.numOperations - 1)

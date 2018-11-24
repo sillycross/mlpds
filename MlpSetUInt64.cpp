@@ -789,7 +789,7 @@ uint32_t CuckooHashTable::Lookup(int ilen, uint64_t ikey, bool& found)
 	return -1;
 }
 
-uint32_t CuckooHashTable::LookupMustExist(int ilen, uint64_t ikey)
+CuckooHashTable::LookupMustExistPromise CuckooHashTable::GetLookupMustExistPromise(int ilen, uint64_t ikey)
 {
 	assert(m_hasCalledInit);
 	
@@ -802,16 +802,13 @@ uint32_t CuckooHashTable::LookupMustExist(int ilen, uint64_t ikey)
 	uint32_t h1, h2;
 	h1 = XXH::XXHashFn1(ikey, ilen) & htMask;
 	h2 = XXH::XXHashFn2(ikey, ilen) & htMask;
-	MEM_PREFETCH(ht[h1]);
-	MEM_PREFETCH(ht[h2]);
-	if (ht[h1].IsEqual(expectedHash, shiftLen, shiftedKey))
-	{
-		return h1;
-	}
-#ifndef NDEBUG
-	assert(ht[h2].IsEqual(expectedHash, shiftLen, shiftedKey));
-#endif
-	return h2;
+	
+	return LookupMustExistPromise(true /*valid*/,
+	                              shiftLen,
+	                              ht + h1,
+	                              ht + h2,
+	                              expectedHash,
+	                              shiftedKey);
 }
 
 int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions)
@@ -1289,17 +1286,22 @@ bool MlpSet::Exist(uint64_t value)
 	return (lcpLen == 8);
 }
 
-uint64_t MlpSet::LowerBound(uint64_t value, bool& found)
+MlpSet::Promise MlpSet::LowerBoundInternal(uint64_t value, bool& found)
 {
 	assert(m_hasCalledInit);
 	found = true;
+	
+	// Issue the prefetch in case LCP turns out to be 2
+	//
+	MEM_PREFETCH(m_treeDepth2[(value >> 48) * 4]);
+	
 	uint32_t pos;
 	uint64_t _allPositions[4];
 	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
 	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
 	if (lcpLen == 8)
 	{
-		return value;
+		return Promise(&m_hashTable.ht[pos]);
 	}
 	if (lcpLen == 2)
 	{
@@ -1325,8 +1327,7 @@ uint64_t MlpSet::LowerBound(uint64_t value, bool& found)
 			//
 			uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
 			keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
-			uint32_t minKeyPos = m_hashTable.LookupMustExist(dlen + 1, keyToFind);
-			return m_hashTable.ht[minKeyPos].minKey;
+			return m_hashTable.GetLookupMustExistPromise(dlen + 1, keyToFind);
 		}
 		else
 		{
@@ -1337,7 +1338,7 @@ uint64_t MlpSet::LowerBound(uint64_t value, bool& found)
 			{
 				// smaller than whole subtree, result is just subtreeMin
 				//
-				return m_hashTable.ht[pos].minKey;
+				return Promise(&m_hashTable.ht[pos]);
 			}
 			else
 			{	
@@ -1383,8 +1384,7 @@ _parent:
 						//
 						uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
 						keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
-						uint32_t minKeyPos = m_hashTable.LookupMustExist(dlen + 1, keyToFind);
-						return m_hashTable.ht[minKeyPos].minKey;
+						return m_hashTable.GetLookupMustExistPromise(dlen + 1, keyToFind);
 					}
 				}
 			}
@@ -1401,8 +1401,7 @@ _flat_mapping:
 		if (lv2LbChild != -1)
 		{
 			uint64_t keyToFind = ((high24bits >> 8) << 48) | (uint64_t(lv2LbChild) << 40);
-			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
-			return m_hashTable.ht[minKeyPos].minKey;
+			return m_hashTable.GetLookupMustExistPromise(3, keyToFind);
 		}
 	}
 	// check lv1 of tree
@@ -1416,8 +1415,7 @@ _flat_mapping:
 			int lv2FirstChild = Bitmap256LowerBound(m_treeDepth2 + high16bits * 4, 0 /*child*/);
 			assert(lv2FirstChild != -1);
 			uint64_t keyToFind = (high16bits << 48) | (uint64_t(lv2FirstChild) << 40);
-			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
-			return m_hashTable.ht[minKeyPos].minKey;
+			return m_hashTable.GetLookupMustExistPromise(3, keyToFind);
 		}
 	}
 	// finally check root
@@ -1433,14 +1431,38 @@ _flat_mapping:
 			int lv2FirstChild = Bitmap256LowerBound(m_treeDepth2 + high16bits * 4, 0 /*child*/);
 			assert(lv2FirstChild != -1);
 			uint64_t keyToFind = (high16bits << 48) | (uint64_t(lv2FirstChild) << 40);
-			uint32_t minKeyPos = m_hashTable.LookupMustExist(3, keyToFind);
-			return m_hashTable.ht[minKeyPos].minKey;
+			return m_hashTable.GetLookupMustExistPromise(3, keyToFind);
 		}
 	}
 	// not found
 	//
 	found = false;
-	return 0xffffffffffffffffULL;
+	return Promise();
+}
+
+MlpSet::Promise MlpSet::LowerBound(uint64_t value)
+{
+	bool found;
+	Promise p = LowerBoundInternal(value, found);
+	if (found) 
+	{
+		p.Prefetch();
+	}
+	return p;
+}
+
+uint64_t MlpSet::LowerBound(uint64_t value, bool& found)
+{
+	Promise p = LowerBoundInternal(value, found);
+	if (found) 
+	{
+		p.Prefetch();
+		return p.Resolve();
+	}
+	else
+	{
+		return 0xffffffffffffffffULL;
+	}
 }
 
 }	// namespace MlpSetUInt64

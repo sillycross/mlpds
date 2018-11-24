@@ -219,6 +219,62 @@ public:
 		Stats();
 	};
 	
+	class LookupMustExistPromise
+	{
+	public:
+		LookupMustExistPromise() : valid(0) {}
+		LookupMustExistPromise(CuckooHashTableNode* h)
+			: valid(1)
+			, h1(h)
+			, h2(nullptr)
+		{ }
+		
+		LookupMustExistPromise(uint16_t valid, uint16_t shiftLen, 
+		                       CuckooHashTableNode* h1, CuckooHashTableNode* h2, 
+		                       uint32_t expectedHash, uint64_t shiftedKey)
+			: valid(valid)
+			, shiftLen(shiftLen)
+			, h1(h1)
+			, h2(h2)
+			, expectedHash(expectedHash)
+			, shiftedKey(shiftedKey)
+		{ }
+		
+		bool IsValid() { return valid; }
+		
+		uint64_t Resolve()
+		{
+			assert(IsValid());
+			if (h2 == nullptr || h1->IsEqual(expectedHash, shiftLen, shiftedKey))
+			{
+				return h1->minKey;
+			}
+			else
+			{
+				assert(h1->IsEqual(expectedHash, shiftLen, shiftedKey));
+				return h2->minKey;
+			}
+		}
+		
+		void Prefetch()
+		{
+			assert(IsValid());
+			if (h2 != nullptr)
+			{
+				MEM_PREFETCH(*h1);
+				MEM_PREFETCH(*h2);
+			}
+		}
+		
+	private:
+		uint16_t valid;
+		uint16_t shiftLen;
+		CuckooHashTableNode* h1;
+		CuckooHashTableNode* h2;
+		uint32_t expectedHash;
+		uint64_t shiftedKey;
+	};
+	
 	CuckooHashTable();
 	
 	void Init(CuckooHashTableNode* _ht, uint64_t _mask);
@@ -237,9 +293,9 @@ public:
 	//
 	uint32_t Lookup(int ilen, uint64_t ikey, bool& found);
 
-	// Single point lookup on a key that is supposed to exist, returns index in hash table
+	// Single point lookup on a key that is supposed to exist
 	//
-	uint32_t LookupMustExist(int ilen, uint64_t ikey);
+	CuckooHashTable::LookupMustExistPromise GetLookupMustExistPromise(int ilen, uint64_t ikey);
 	
 	// Fast LCP query using vectorized hash computation and memory level parallelism
 	// Since we only store nodes of depth >= 3 in hash table, 
@@ -273,6 +329,8 @@ private:
 class MlpSet
 {
 public:
+	typedef CuckooHashTable::LookupMustExistPromise Promise;
+	
 	MlpSet();
 	~MlpSet();
 	
@@ -293,6 +351,12 @@ public:
 	//
 	uint64_t LowerBound(uint64_t value, bool& found);
 	
+	// Returns a promise for lower_bound
+	// Promise.IsValid() denotes if lower_bound doesn't exist
+	// The promise can be resolved via Promise.Resolve() to get the lower_bound
+	//
+	MlpSet::Promise LowerBound(uint64_t value);
+	
 	// For debug purposes only
 	//
 	uint64_t* GetRootPtr() { return m_root; }
@@ -301,6 +365,8 @@ public:
 	CuckooHashTable* GetHtPtr() { return &m_hashTable; }
 	
 private:
+	MlpSet::Promise LowerBoundInternal(uint64_t value, bool& found);
+	
 	// we mmap memory all at once, hold the pointer to the memory chunk
 	// TODO: this needs to changed after we support hash table resizing 
 	//
