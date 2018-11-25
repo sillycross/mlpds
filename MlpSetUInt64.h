@@ -211,6 +211,7 @@ static_assert(sizeof(CuckooHashTableNode) == 24, "size of node should be 24");
 class CuckooHashTable
 {
 public:
+#ifdef ENABLE_STATS
 	struct Stats
 	{
 		uint32_t m_slowpathCount;
@@ -218,7 +219,8 @@ public:
 		uint32_t m_relocatedBitmapsCount;
 		Stats();
 	};
-	
+#endif
+
 	class LookupMustExistPromise
 	{
 	public:
@@ -314,10 +316,12 @@ public:
 	// hash table mask (always a power of 2 minus 1)
 	//
 	uint32_t htMask;
+#ifdef ENABLE_STATS
 	// statistic info
 	//
 	Stats stats;
-	
+#endif
+
 private:
 	void HashTableCuckooDisplacement(uint32_t victimPosition, int rounds, bool& failed);
 	

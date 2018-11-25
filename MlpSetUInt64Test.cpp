@@ -153,9 +153,11 @@ TEST(MlpSetUInt64, VitroCuckooHashLogicCorrectness)
 		}
 	}
 	printf("Insertion complete.\n");
+#ifdef ENABLE_STATS
 	printf("Cuckoo hash table stats: %u node moves %u bitmap moves\n", 
 		   ht.stats.m_movedNodesCount, ht.stats.m_relocatedBitmapsCount);
-		       
+#endif
+
 	// sanity check whole hash table
 	//
 	{
@@ -387,8 +389,10 @@ TEST(MlpSetUInt64, VitroCuckooHashQueryLcpCorrectness)
 	}
 	
 	printf("Query completed.\n");
+#ifdef ENABLE_STATS
 	printf("Hash table stats: %u slowpath count\n", ht.stats.m_slowpathCount);
-	
+#endif
+
 	printf("Validating answers..\n");
 	{
 		int cnt[10];
@@ -562,10 +566,12 @@ TEST(MlpSetUInt64, MlpSetInsertCorrectness)
 	printf("MlpSet insertion complete. Validating..\n");
 	AssertTreeShapeEqualA(st, ms, true /*printDetail*/);
 	printf("Test complete.\n");
+#ifdef ENABLE_STATS
 	printf("Hash table stats: %u slowpath, %u node moves, %u bitmap relocation\n", 
 	       ms.GetHtPtr()->stats.m_slowpathCount, 
 	       ms.GetHtPtr()->stats.m_movedNodesCount, 
 	       ms.GetHtPtr()->stats.m_relocatedBitmapsCount);
+#endif
 }
 
 // Vitro test for CuckooHashTableNode::LowerBoundChild

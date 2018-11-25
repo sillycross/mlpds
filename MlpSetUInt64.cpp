@@ -676,16 +676,20 @@ static inline void MultiplyBy3(const __m128i& input, __m128i& output)
 	output = _mm_add_epi32(input, output);
 }
 
+#ifdef ENABLE_STATS
 CuckooHashTable::Stats::Stats()
 	: m_slowpathCount(0)
 	, m_movedNodesCount(0)
 	, m_relocatedBitmapsCount(0)
 { }
+#endif
 
 CuckooHashTable::CuckooHashTable() 
 	: ht(nullptr)
 	, htMask(0)
+#ifdef ENABLE_STATS
 	, stats()
+#endif
 #ifndef NDEBUG
 	, m_hasCalledInit(false)
 #endif
@@ -909,7 +913,9 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPo
 	//
 _slowpath:
 	{
+#ifdef ENABLE_STATS
 		stats.m_slowpathCount++;
+#endif
 		memset(allPositions, 0, 32);
 		uint64_t _buffer[6];
 		uint32_t* buffer = reinterpret_cast<uint32_t*>(_buffer);
@@ -977,7 +983,9 @@ void CuckooHashTable::HashTableCuckooDisplacement(uint32_t victimPosition, int r
 			if (failed) return;
 		}
 		assert(!ht[h1].IsOccupied());
+#ifdef ENABLE_STATS
 		stats.m_movedNodesCount++;
+#endif
 		ht[victimPosition].MoveNode(&ht[h1]);
 	}
 	else
@@ -997,7 +1005,9 @@ void CuckooHashTable::HashTableCuckooDisplacement(uint32_t victimPosition, int r
 			}
 		}
 		assert(owner != nullptr);
+#ifdef ENABLE_STATS
 		stats.m_relocatedBitmapsCount++;
+#endif
 		owner->RelocateBitMap();
 	}
 	assert(!ht[victimPosition].IsOccupied());

@@ -53,6 +53,10 @@ typedef unsigned long long ULL;
 // #define HUGEPAGESIZE_BYTES 2097152
 #define HUGEPAGESIZE_BYTES 1073741824
 
+// uncomment to enable stats-related code for analysis
+//
+//#define ENABLE_STATS
+
 // According to manual, if mmap uses hugetlb,
 // the munmap length must be a multiple of HugePageSize 
 //
