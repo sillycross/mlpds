@@ -217,7 +217,10 @@ public:
 		uint32_t m_slowpathCount;
 		uint32_t m_movedNodesCount;
 		uint32_t m_relocatedBitmapsCount;
+		uint32_t m_lcpResultHistogram[9];
 		Stats();
+		void ClearStats();
+		void ReportStats();
 	};
 #endif
 

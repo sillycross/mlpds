@@ -824,6 +824,11 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 		}
 	}
 	
+#ifdef ENABLE_STATS
+	ms.GetHtPtr()->stats.ReportStats();
+	ms.GetHtPtr()->stats.ClearStats();
+#endif
+
 	printf("MlpSet executing workload..\n");
 	{
 		AutoTimer timer;
@@ -889,6 +894,10 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 		}
 	}
 	
+#ifdef ENABLE_STATS
+	ms.GetHtPtr()->stats.ReportStats();
+#endif
+
 	printf("MlpSet workload completed.\n");
 }
 

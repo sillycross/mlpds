@@ -55,7 +55,7 @@ typedef unsigned long long ULL;
 
 // uncomment to enable stats-related code for analysis
 //
-//#define ENABLE_STATS
+#define ENABLE_STATS
 
 // According to manual, if mmap uses hugetlb,
 // the munmap length must be a multiple of HugePageSize 

@@ -681,7 +681,30 @@ CuckooHashTable::Stats::Stats()
 	: m_slowpathCount(0)
 	, m_movedNodesCount(0)
 	, m_relocatedBitmapsCount(0)
-{ }
+{
+	memset(m_lcpResultHistogram, 0, sizeof m_lcpResultHistogram); 
+}
+
+void CuckooHashTable::Stats::ClearStats()
+{
+	m_slowpathCount = 0;
+	m_movedNodesCount = 0;
+	m_relocatedBitmapsCount = 0;
+	memset(m_lcpResultHistogram, 0, sizeof m_lcpResultHistogram); 
+}
+
+void CuckooHashTable::Stats::ReportStats()
+{
+	printf("Cuckoo HashTable stats:\n");
+	printf("\tQueryLCP slow-path count = %u\n", m_slowpathCount);
+	printf("\tInsertion moved nodes count = %u\n", m_movedNodesCount);
+	printf("\tInsertion relocated bitmaps count = %u\n", m_relocatedBitmapsCount);
+	printf("\tQueryLCP result histogram (result node IndexLen, not actual LCP):\n");
+	rep(i, 2, 8)
+	{
+		printf("\t\tLCP = %d: %u\n", i, m_lcpResultHistogram[i]);
+	}
+}
 #endif
 
 CuckooHashTable::CuckooHashTable() 
@@ -867,7 +890,13 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPo
 	
 	{
 		int msk = msk1 | msk2;
-		if (msk == 0) return 2;	
+		if (msk == 0) 
+		{ 
+#ifdef ENABLE_STATS
+			stats.m_lcpResultHistogram[2]++;
+#endif
+			return 2;	
+		}
 		
 		int ordinal = 32 - __builtin_clz(msk);
 		
@@ -901,6 +930,10 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPo
 
 		if (unlikely((ht[pos].minKey >> shiftLen) != (key >> shiftLen))) goto _slowpath;
 			
+#ifdef ENABLE_STATS
+		stats.m_lcpResultHistogram[ht[pos].GetIndexKeyLen()]++;
+#endif
+
 		resultPos = pos;
 		uint64_t xorValue = key ^ ht[pos].minKey;
 		if (!xorValue) return 8;
@@ -941,10 +974,20 @@ _slowpath:
 		if (ht[buffer[6]].IsEqualNoHash(key, 7)) { found = true; pos = buffer[6]; allPositions[6] = buffer[6]; }
 		if (ht[buffer[3]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[3]; allPositions[7] = buffer[3] ; }
 		if (ht[buffer[7]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[7]; allPositions[7] = buffer[7]; }
-		if (!found) { return 2;	}
+		if (!found) 
+		{ 
+#ifdef ENABLE_STATS
+			stats.m_lcpResultHistogram[2]++;
+#endif
+			return 2;	
+		}
 
 		assert(pos != -1);	// we will never have such a large hash table in debug..
 		
+#ifdef ENABLE_STATS
+		stats.m_lcpResultHistogram[ht[pos].GetIndexKeyLen()]++;
+#endif
+
 		resultPos = pos;
 		uint64_t xorValue = key ^ ht[pos].minKey;
 		if (!xorValue) return 8;
