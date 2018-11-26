@@ -825,8 +825,8 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 	}
 	
 #ifdef ENABLE_STATS
-	ms.GetHtPtr()->stats.ReportStats();
-	ms.GetHtPtr()->stats.ClearStats();
+	ms.ReportStats();
+	ms.ClearStats();
 #endif
 
 	printf("MlpSet executing workload..\n");
@@ -895,7 +895,7 @@ void NO_INLINE MlpSetExecuteWorkload(WorkloadUInt64& workload)
 	}
 	
 #ifdef ENABLE_STATS
-	ms.GetHtPtr()->stats.ReportStats();
+	ms.ReportStats();
 #endif
 
 	printf("MlpSet workload completed.\n");

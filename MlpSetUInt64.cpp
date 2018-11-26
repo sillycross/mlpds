@@ -1075,6 +1075,51 @@ MlpSet::~MlpSet()
 	}
 }
 	
+#ifdef ENABLE_STATS
+MlpSet::Stats::Stats()
+{
+	memset(m_lowerBoundParentPathStepsHistogram, 0, sizeof m_lowerBoundParentPathStepsHistogram);
+}
+		
+void MlpSet::Stats::ClearStats()
+{
+	memset(m_lowerBoundParentPathStepsHistogram, 0, sizeof m_lowerBoundParentPathStepsHistogram);
+}
+		
+void MlpSet::Stats::ReportStats()	
+{
+	printf("MlpSet stats:\n");
+	bool containsUsefulInfo = false;
+	rep(i, 0, 7) 
+	{
+		if (m_lowerBoundParentPathStepsHistogram[i]) 
+		{
+			containsUsefulInfo = true;
+		}
+	}
+	if (containsUsefulInfo)
+	{
+		printf("\tLower_bound queries parent-path walk length histogram:\n");
+		rep(i, 0, 7)
+		{
+			printf("\tlen = %d: %u\n", i, m_lowerBoundParentPathStepsHistogram[i]);
+		}
+	}
+}
+
+void MlpSet::ClearStats()
+{
+	stats.ClearStats();
+	m_hashTable.stats.ClearStats();
+}
+		
+void MlpSet::ReportStats()
+{
+	stats.ReportStats();
+	m_hashTable.stats.ReportStats();
+}
+#endif
+
 void MlpSet::Init(uint32_t maxSetSize)
 {
 	assert(!m_hasCalledInit);
@@ -1348,6 +1393,14 @@ MlpSet::Promise MlpSet::LowerBoundInternal(uint64_t value, bool& found)
 	//
 	MEM_PREFETCH(m_treeDepth2[(value >> 48) * 4]);
 	
+#ifdef ENABLE_STATS
+	int numParentPathSteps = 0;
+	Auto(
+		assert(numParentPathSteps < 8);
+		stats.m_lowerBoundParentPathStepsHistogram[numParentPathSteps]++;
+	);
+#endif
+
 	uint32_t pos;
 	uint64_t _allPositions[4];
 	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
@@ -1410,6 +1463,9 @@ _parent:
 		int ilen = m_hashTable.ht[pos].GetIndexKeyLen() - 1;
 		for (; ilen > 2; ilen--)
 		{
+#ifdef ENABLE_STATS
+			numParentPathSteps++;
+#endif
 			uint32_t pos = allPositions[ilen - 1];
 #ifndef NDEBUG
 			if (pos != 0)
@@ -1447,6 +1503,9 @@ _parent:
 _flat_mapping:
 	// We have reached lv2 of the tree, which are stored in the flat bitarray instead of the hash table
 	//
+#ifdef ENABLE_STATS
+	numParentPathSteps++;
+#endif
 	uint64_t high24bits = value >> 40;
 	if ((high24bits & 255) < 255)
 	{
@@ -1459,6 +1518,9 @@ _flat_mapping:
 	}
 	// check lv1 of tree
 	//
+#ifdef ENABLE_STATS
+	numParentPathSteps++;
+#endif
 	if (((high24bits >> 8) & 255) < 255)
 	{
 		int lv1LbChild = Bitmap256LowerBound(m_treeDepth1 + (high24bits >> 16) * 4, ((high24bits >> 8) & 255) + 1);
@@ -1473,6 +1535,9 @@ _flat_mapping:
 	}
 	// finally check root
 	//
+#ifdef ENABLE_STATS
+	numParentPathSteps++;
+#endif
 	if ((high24bits >> 16) < 255)
 	{
 		int lv0LbChild = Bitmap256LowerBound(m_root, (high24bits >> 16) + 1);

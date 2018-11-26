@@ -336,6 +336,17 @@ private:
 class MlpSet
 {
 public:
+#ifdef ENABLE_STATS
+	struct Stats
+	{
+		uint32_t m_lowerBoundParentPathStepsHistogram[8];
+		Stats();
+		void ClearStats();
+		void ReportStats();
+	};
+	Stats stats;
+#endif
+
 	typedef CuckooHashTable::LookupMustExistPromise Promise;
 	
 	MlpSet();
@@ -371,6 +382,11 @@ public:
 	uint64_t* GetLv2Ptr() { return m_treeDepth2; }
 	CuckooHashTable* GetHtPtr() { return &m_hashTable; }
 	
+#ifdef ENABLE_STATS
+	void ClearStats();
+	void ReportStats();
+#endif
+
 private:
 	MlpSet::Promise LowerBoundInternal(uint64_t value, bool& found);
 	
