@@ -73,7 +73,7 @@ struct AutoTimer
 		fasttime_t m_end = gettime();
 		double timeElapsed = tdiff(m_start, m_end);
 		if (m_result != nullptr) *m_result = timeElapsed;
-		fprintf(stderr, "AutoTimer: %.6lf second elapsed.\n", timeElapsed);
+		printf("AutoTimer: %.6lf second elapsed.\n", timeElapsed);
 	}
 };
 
