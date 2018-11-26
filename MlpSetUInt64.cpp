@@ -224,6 +224,10 @@ int CuckooHashTableNode::FindNeighboringEmptySlot()
 			return -1;
 		}
 	}
+	// TODO: 
+	// according to DramSpeedTest.HWAdjacentPrefetcher test results,
+	// we should only return a slot residing in the same 128-byte line
+	//
 	rep(i, 1, 3)
 	{
 		if (!this[i].IsOccupied())
