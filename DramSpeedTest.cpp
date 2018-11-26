@@ -281,6 +281,203 @@ TEST(DramSpeedTest, HWAdjacentPrefetcher)
 	}
 }
 
+TEST(DramSpeedTest, SumWithEarlyExitTest)
+{
+	atype* a = AllocateMemory(true /*usingHugePage*/);
+	Auto(DeallocateMemory(a, true /*usingHugePage*/));
+	
+	// given 8 positions x_1, .. x_8
+	// you try to find out the first i such that f(a[x_i]) is true
+	// then sum up x_1 .. x_i 
+	// what is the fastest way to do this?
+	//
+	
+	uint32_t* q = new uint32_t[numQueries];
+	ReleaseAssert(q != nullptr);
+	Auto(delete [] q);
+	rep(i,0,numQueries-1) q[i] = rand();
+		
+	uint64_t checksum = 0;
+	double infLine;
+	
+	uint64_t sum;
+
+	// break out chance at every step is chance_nume / chance_domi
+	//
+	const int chance_domi = 1024;
+	
+	printf("Always sum everything version..\n");
+	{
+		AutoTimer timer;
+		sum = 0;
+		uint32_t numEntries = memMB * uint64_t(1<<20) / 64;
+		for (int i = 0; i < numQueries; i += 8)
+		{
+			uint64_t z = rotl64(sum, 23) * PRIME64_1;
+			int pos[8];
+			rep(k,0,7)
+			{
+				pos[k] = (q[i+k] ^ z) & (numEntries - 1);
+			}
+			rep(k, 0, 7)
+			{
+				sum += a[pos[k]].value[0];
+			}
+		}
+	}
+	printf("checksum = %llu\n", sum);
+	
+	printf("Always sum everything + prefetch version..\n");
+	{
+		AutoTimer timer;
+		sum = 0;
+		uint32_t numEntries = memMB * uint64_t(1<<20) / 64;
+		for (int i = 0; i < numQueries; i += 8)
+		{
+			uint64_t z = rotl64(sum, 23) * PRIME64_1;
+			int pos[8];
+			rep(k,0,7)
+			{
+				pos[k] = (q[i+k] ^ z) & (numEntries - 1);
+				MEM_PREFETCH(a[pos[k]].value[0]);
+			}
+			rep(k, 0, 7)
+			{
+				sum += a[pos[k]].value[0];
+			}
+		}
+	}
+	printf("checksum = %llu\n", sum);
+	
+	double results[9][3];
+	
+	rep(cid, 0, 8)
+	{
+		int chance_nume = cid * 128;
+		chance_nume = min(chance_nume, 1023);
+		chance_nume = max(chance_nume, 1);
+		
+		printf("Break out chance = %d / %d\n", chance_nume, chance_domi);
+		
+		printf("Simple branch version..\n");
+		{
+			AutoTimer timer(&results[cid][0]);
+			sum = 0;
+			uint32_t numEntries = memMB * uint64_t(1<<20) / 64;
+			for (int i = 0; i < numQueries; i += 8)
+			{
+				uint64_t z = rotl64(sum, 23) * PRIME64_1;
+				int pos[8];
+				rep(k,0,7)
+				{
+					pos[k] = (q[i+k] ^ z) & (numEntries - 1);
+				}
+				rep(k, 0, 7)
+				{
+					sum += a[pos[k]].value[0];
+					if (a[pos[k]].value[0] % chance_domi < chance_nume)
+					{
+						break;
+					}
+				}
+			}
+		}
+		printf("checksum = %llu\n", sum);
+		
+		printf("Branchless avx version..\n");
+		{
+			AutoTimer timer(&results[cid][1]);
+			sum = 0;
+			uint32_t numEntries = memMB * uint64_t(1<<20) / 64;
+			const __m128i idxMask = _mm_set1_epi32(numEntries - 1);
+			const __m256i dataMask = _mm256_set1_epi64x(chance_domi - 1);
+			const __m256i cmpv = _mm256_set1_epi64x(chance_nume - 1);
+			for (int i = 0; i < numQueries; i += 8)
+			{
+				uint64_t z = rotl64(sum, 23) * PRIME64_1;
+				uint32_t z32 = z;
+				__m128i pos1 = _mm_loadu_si128(reinterpret_cast<__m128i const *>(&(q[i])));
+				__m128i pos2 = _mm_loadu_si128(reinterpret_cast<__m128i const *>(&(q[i+4])));
+				__m128i xorMask = _mm_set1_epi32(z32);
+				pos1 = _mm_xor_si128(pos1, xorMask);
+				pos1 = _mm_and_si128(pos1, idxMask);
+				pos1 = _mm_slli_epi32(pos1, 3);
+				pos2 = _mm_xor_si128(pos2, xorMask);
+				pos2 = _mm_and_si128(pos2, idxMask);
+				pos2 = _mm_slli_epi32(pos2, 3);
+				__m256i data1 = _mm256_i32gather_epi64(reinterpret_cast<long long int const*>(a), pos1, 8);
+				__m256i data2 = _mm256_i32gather_epi64(reinterpret_cast<long long int const*>(a), pos2, 8);
+				__m256i cmp1 = _mm256_and_si256(data1, dataMask);
+				__m256i cmp2 = _mm256_and_si256(data2, dataMask);
+				cmp1 = _mm256_cmpgt_epi64(cmp1, cmpv);
+				cmp2 = _mm256_cmpgt_epi64(cmp2, cmpv);
+				int msk1 = _mm256_movemask_pd(_mm256_castsi256_pd(cmp1)) ^ 15;
+				int msk2 = _mm256_movemask_pd(_mm256_castsi256_pd(cmp2)) ^ 15;
+				int msk = msk1 | (msk2 << 4) | (1 << 7);
+				int len = __builtin_ffs(msk);
+				uint64_t tmp[8];
+				_mm256_storeu_si256(reinterpret_cast<__m256i*>(tmp), data1);
+				_mm256_storeu_si256(reinterpret_cast<__m256i*>(tmp + 4), data2);
+				for (int k = 0; k < len; k++)
+				{
+					sum += tmp[k];
+				}
+			}
+		}
+		printf("checksum = %llu\n", sum);
+		
+		printf("Prefetch version..\n");
+		{
+			AutoTimer timer(&results[cid][2]);
+			sum = 0;
+			uint32_t numEntries = memMB * uint64_t(1<<20) / 64;
+			for (int i = 0; i < numQueries; i += 8)
+			{
+				uint64_t x = 0;
+				uint64_t z = rotl64(sum, 23) * PRIME64_1;
+				int pos[8];
+				rep(k,0,7)
+				{
+					pos[k] = (q[i+k] ^ z) & (numEntries - 1);
+					MEM_PREFETCH(a[pos[k]].value[0]);
+				}
+				rep(k, 0, 7)
+				{
+					sum += a[pos[k]].value[0];
+					if (a[pos[k]].value[0] % chance_domi < chance_nume)
+					{
+						break;
+					}
+				}
+			}
+		}
+		printf("checksum = %llu\n", sum);
+	}
+	
+	printf("Result stats:\n");
+	printf("Simple branch:\n");
+	rep(i, 0, 8)
+	{
+		printf("%.3lf ", results[i][0]);
+	}
+	printf("\n");
+	
+	printf("avx:\n");
+	rep(i, 0, 8)
+	{
+		printf("%.3lf ", results[i][1]);
+	}
+	printf("\n");
+	
+	printf("prefetch:\n");
+	rep(i, 0, 8)
+	{
+		printf("%.3lf ", results[i][2]);
+	}
+	printf("\n");
+	
+}
+
 TEST(DramSpeedTest, HugePage)
 {
 	atype* a = AllocateMemory(true /*usingHugePage*/);
