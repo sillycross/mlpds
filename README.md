@@ -5,7 +5,7 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 * The benchmarks are run on my laptop, with Intel Core i7-7700HQ CPU @ 2.80GHz (4 Core 8 Hyperthreads, although all benchmarks are single-threaded), and 2x16GB Corsair DDR4 2400MT DRAM. I measured that one DRAM round-trip takes 70 ns (14.3M op/s) when the system is in idle state.
 
-* 64-bit integer key. "Lookup (16M)" means lookup on a set containing 16 million elements, etc.
+* In this benchmark, we test 64-bit integer keys. "Lookup (16M)" means lookup on a set containing 16 million elements, etc.
 
 |                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |
 |--------------------|:----------:|:-------------------:|:-----------------:|:----------:|
@@ -22,7 +22,7 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 ※ Actually, in the benchmarks, each query's text is XOR'ed with the previous query's correct answer. This means even the CPU cannot out-of-order execute across query boundaries, since it cannot know what the next query is until it correctly answers the previous one. MlpSet will be (slightly) even faster if this "forced boundary" is removed, but we believe this better reflects the reality where queries come in one by one.
 
-* 64-bit integer key. Another data distribution.
+* Still 64-bit integer key, but another data distribution. This is a harder distribution for us (the total number of trie tree nodes is closer to the theoretical upper bound of 2n), but an easier distribution for HOT. However, even in this case, on 80M data set, we are still having 3x advantage on Insert and Lookup, and 2x advantage on Lower_Bound over HOT. 
 
 |                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |
 |--------------------|:----------:|:-------------------:|:-----------------:|:----------:|
