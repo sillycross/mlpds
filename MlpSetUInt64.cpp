@@ -842,7 +842,11 @@ CuckooHashTable::LookupMustExistPromise CuckooHashTable::GetLookupMustExistPromi
 	                              shiftedKey);
 }
 
-int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions)
+int ALWAYS_INLINE CuckooHashTable::QueryLCP(uint64_t key, 
+                                            uint32_t& idxLen, 
+                                            uint32_t* allPositions1, 
+                                            uint32_t* allPositions2, 
+                                            uint32_t* expectedHash)
 {
 	assert(m_hasCalledInit);
 	
@@ -855,93 +859,75 @@ int CuckooHashTable::QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPo
 	h2 = _mm_and_si128(h2, hashModMask);
 	h4 = _mm_and_si128(h4, hashModMask);
 	
-	__m128i offset1, offset2, offset4;
-	MultiplyBy3(h1, offset1);
-	MultiplyBy3(h2, offset2);
-	MultiplyBy3(h4, offset4);
+	_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions1 + 4), h1);
+	_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions2 + 4), h2);
+	_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions1), h4);
+	*reinterpret_cast<uint64_t*>(allPositions2 + 2) = *reinterpret_cast<uint64_t*>(allPositions1);
 	
-	__m128i data1, data2, data4;
-	data1 = _mm_i32gather_epi32(reinterpret_cast<int const*>(ht), offset1, 8);
-	data2 = _mm_i32gather_epi32(reinterpret_cast<int const*>(ht), offset2, 8);
-	data4 = _mm_i32gather_epi32(reinterpret_cast<int const*>(ht), offset4, 8);
+	MEM_PREFETCH(ht[allPositions1[2]]);
+	MEM_PREFETCH(ht[allPositions1[3]]);
+	MEM_PREFETCH(ht[allPositions1[4]]);
+	MEM_PREFETCH(ht[allPositions1[5]]);
+	MEM_PREFETCH(ht[allPositions1[6]]);
+	MEM_PREFETCH(ht[allPositions2[2]]);
+	MEM_PREFETCH(ht[allPositions2[3]]);
+	MEM_PREFETCH(ht[allPositions2[4]]);
+	MEM_PREFETCH(ht[allPositions2[5]]);
+	MEM_PREFETCH(ht[allPositions2[6]]);
 	
 	__m128i expect1 = _mm_and_si128(h3, HASH18_MASK);
 	expect1 = _mm_or_si128(expect1, HASH_EXPECT_MASK1);
-	
+	_mm_storeu_si128(reinterpret_cast<__m128i*>(expectedHash + 4), expect1);
 	h5 &= 0x3ffff0003ffffULL;
 	h5 |= 0x8000000080000000ULL | (3ULL << 59) | (2ULL << 27);
-	__m128i expect2 = _mm_set_epi64x(h5, h5);
+	*reinterpret_cast<uint64_t*>(expectedHash + 2) = h5;
 	
-	// TODO: 
-	// experiment with the performance impact of early exit
-	//
-	data1 = _mm_and_si128(data1, HASH_EXPECT_MASK2);
-	data2 = _mm_and_si128(data2, HASH_EXPECT_MASK2);
-	data4 = _mm_and_si128(data4, HASH_EXPECT_MASK2);
-	
-	__m128i cmp1 = _mm_cmpeq_epi32(data1, expect1);
-	__m128i cmp2 = _mm_cmpeq_epi32(data2, expect1);
-	__m128i cmp3 = _mm_cmpeq_epi32(data4, expect2);
-	
-	int msk1 = _mm_movemask_ps(_mm_castsi128_ps(cmp1));
-	int msk2 = _mm_movemask_ps(_mm_castsi128_ps(cmp2));
-	int msk3 = _mm_movemask_ps(_mm_castsi128_ps(cmp3));
-	
-	msk1 = (msk1 << 2) | (msk3 >> 2);
-	msk2 = (msk2 << 2) | (msk3 & 3);
-	
-	if (unlikely(msk1 & msk2)) goto _slowpath;
-	
+	int len = 7;
+
+	for (; len >= 2; len --)
 	{
-		int msk = msk1 | msk2;
-		if (msk == 0) 
-		{ 
-#ifdef ENABLE_STATS
-			stats.m_lcpResultHistogram[2]++;
-#endif
-			return 2;	
+		if ((ht[allPositions1[len]].hash & 0xf803ffffU) == expectedHash[len]) 
+		{
+			break;
 		}
-		
-		int ordinal = 32 - __builtin_clz(msk);
-		
-		assert(1 <= ordinal && ordinal <= 6);
-		
-		// TODO: 
-		// here we are selecting out the match from the SIMD register
-		// alternate choice is to re-compute the hash value directly
-		// investigate if re-computation is more performant
-		//
-		
-		cmp1 = _mm_and_si128(cmp1, h1);
-		cmp2 = _mm_and_si128(cmp2, h2);
-		cmp3 = _mm_and_si128(cmp3, h4);
-		
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions), cmp3);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(allPositions+4), _mm_or_si128(cmp1, cmp2));
-		uint64_t* ptr = reinterpret_cast<uint64_t*>(allPositions);
-		ptr[1] |= ptr[0];
-		uint32_t pos = allPositions[ordinal+1];
-		
-		int ilen = ordinal + 2;
-		int shiftLen = 64 - 8 * ilen;
+		if ((ht[allPositions2[len]].hash & 0xf803ffffU) == expectedHash[len])
+		{
+			allPositions1[len] = allPositions2[len];
+			break;
+		}
+		else
+		{
+			allPositions1[len] = 0;
+		}
+	}
+	if (len < 2)
+	{
+#ifdef ENABLE_STATS
+		stats.m_lcpResultHistogram[2]++;
+#endif
+		return 2;
+	}
 
 #ifndef NDEBUG
-		uint32_t hash18bit = XXH::XXHashFn3(key, ilen);
+	{
+		uint32_t hash18bit = XXH::XXHashFn3(key, len + 1);
 		hash18bit = hash18bit & ((1<<18) - 1);
-		uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
-		assert((ht[pos].hash & 0xf803ffffU) == expectedHash);
+		uint32_t expectedx = hash18bit | (len << 27) | 0x80000000U;
+		assert((ht[allPositions1[len]].hash & 0xf803ffffU) == expectedx);
+	}
 #endif
 
-		if (unlikely((ht[pos].minKey >> shiftLen) != (key >> shiftLen))) goto _slowpath;
-			
+	int shiftLen = 64 - 8 * (len + 1);
+	if (unlikely((ht[allPositions1[len]].minKey >> shiftLen) != (key >> shiftLen))) goto _slowpath;
+
+	idxLen = len + 1;
 #ifdef ENABLE_STATS
-		stats.m_lcpResultHistogram[ht[pos].GetIndexKeyLen()]++;
+	stats.m_lcpResultHistogram[idxLen]++;
 #endif
-
-		resultPos = pos;
-		uint64_t xorValue = key ^ ht[pos].minKey;
+	{
+		uint64_t xorValue = key ^ ht[allPositions1[len]].minKey;
 		if (!xorValue) return 8;
-		
+			
 		int z = __builtin_clzll(xorValue);
 		return z / 8;
 	}
@@ -953,47 +939,29 @@ _slowpath:
 #ifdef ENABLE_STATS
 		stats.m_slowpathCount++;
 #endif
-		memset(allPositions, 0, 32);
-		uint64_t _buffer[6];
-		uint32_t* buffer = reinterpret_cast<uint32_t*>(_buffer);
-		// h1(5), h1(6), h1(7), h1(8)
-		// h2(5), h2(6), h2(7), h2(8)
-		// h2(3), h2(4), h1(3), h1(4)
-		//
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), h1);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+4), h2);
-		_mm_storeu_si128(reinterpret_cast<__m128i*>(buffer+8), h4);
-			
-		uint32_t pos = -1;
-		bool found = false;
-		if (ht[buffer[8]].IsEqualNoHash(key, 3)) { found = true; pos = buffer[8]; allPositions[2] = buffer[8]; }
-		if (ht[buffer[10]].IsEqualNoHash(key, 3)) { found = true; pos = buffer[10]; allPositions[2] = buffer[10]; }
-		if (ht[buffer[9]].IsEqualNoHash(key, 4)) { found = true; pos = buffer[9]; allPositions[3] = buffer[9]; }
-		if (ht[buffer[11]].IsEqualNoHash(key, 4)) { found = true; pos = buffer[11]; allPositions[3] = buffer[11]; }
-		if (ht[buffer[0]].IsEqualNoHash(key, 5)) { found = true; pos = buffer[0]; allPositions[4] = buffer[0]; }
-		if (ht[buffer[4]].IsEqualNoHash(key, 5)) { found = true; pos = buffer[4]; allPositions[4] = buffer[4]; }
-		if (ht[buffer[1]].IsEqualNoHash(key, 6)) { found = true; pos = buffer[1]; allPositions[5] = buffer[1]; }
-		if (ht[buffer[5]].IsEqualNoHash(key, 6)) { found = true; pos = buffer[5]; allPositions[5] = buffer[5]; }
-		if (ht[buffer[2]].IsEqualNoHash(key, 7)) { found = true; pos = buffer[2]; allPositions[6] = buffer[2]; }
-		if (ht[buffer[6]].IsEqualNoHash(key, 7)) { found = true; pos = buffer[6]; allPositions[6] = buffer[6]; }
-		if (ht[buffer[3]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[3]; allPositions[7] = buffer[3] ; }
-		if (ht[buffer[7]].IsEqualNoHash(key, 8)) { found = true; pos = buffer[7]; allPositions[7] = buffer[7]; }
-		if (!found) 
-		{ 
-#ifdef ENABLE_STATS
-			stats.m_lcpResultHistogram[2]++;
-#endif
-			return 2;	
-		}
 
-		assert(pos != -1);	// we will never have such a large hash table in debug..
-		
+		if (ht[allPositions1[7]].IsEqualNoHash(key, 8)) { idxLen = 8; goto _slowpath_end; }
+		if (ht[allPositions2[7]].IsEqualNoHash(key, 8)) { allPositions1[7] = allPositions2[7]; idxLen = 8; goto _slowpath_end; }
+		if (ht[allPositions1[6]].IsEqualNoHash(key, 7)) { idxLen = 7; goto _slowpath_end; }
+		if (ht[allPositions2[6]].IsEqualNoHash(key, 7)) { allPositions1[6] = allPositions2[6]; idxLen = 7; goto _slowpath_end; }
+		if (ht[allPositions1[5]].IsEqualNoHash(key, 6)) { idxLen = 6; goto _slowpath_end; }
+		if (ht[allPositions2[5]].IsEqualNoHash(key, 6)) { allPositions1[5] = allPositions2[5]; idxLen = 6; goto _slowpath_end; }
+		if (ht[allPositions1[4]].IsEqualNoHash(key, 5)) { idxLen = 5; goto _slowpath_end; }
+		if (ht[allPositions2[4]].IsEqualNoHash(key, 5)) { allPositions1[4] = allPositions2[4]; idxLen = 5; goto _slowpath_end; }
+		if (ht[allPositions1[3]].IsEqualNoHash(key, 4)) { idxLen = 4; goto _slowpath_end; }
+		if (ht[allPositions2[3]].IsEqualNoHash(key, 4)) { allPositions1[3] = allPositions2[3]; idxLen = 4; goto _slowpath_end; }
+		if (ht[allPositions1[2]].IsEqualNoHash(key, 3)) { idxLen = 3; goto _slowpath_end; }
+		if (ht[allPositions2[2]].IsEqualNoHash(key, 3)) { allPositions1[2] = allPositions2[2]; idxLen = 3; goto _slowpath_end; }
 #ifdef ENABLE_STATS
-		stats.m_lcpResultHistogram[ht[pos].GetIndexKeyLen()]++;
+		stats.m_lcpResultHistogram[2]++;
 #endif
+		return 2;
 
-		resultPos = pos;
-		uint64_t xorValue = key ^ ht[pos].minKey;
+_slowpath_end:
+#ifdef ENABLE_STATS
+		stats.m_lcpResultHistogram[idxLen]++;
+#endif
+		uint64_t xorValue = key ^ ht[allPositions1[idxLen-1]].minKey;
 		if (!xorValue) return 8;
 			
 		int z = __builtin_clzll(xorValue);
@@ -1203,18 +1171,24 @@ bool MlpSet::Insert(uint64_t value)
 	// Since we know the LCP is >= 2, QueryLCP is applicable
 	// 
 	{
-		uint32_t pos;
-		uint64_t _allPositions[4];
-		uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
-		lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+		uint32_t ilen;
+		uint64_t _allPositions1[4], _allPositions2[4], _expectedHash[4];
+		uint32_t* allPositions1 = reinterpret_cast<uint32_t*>(_allPositions1);
+		uint32_t* allPositions2 = reinterpret_cast<uint32_t*>(_allPositions2);
+		uint32_t* expectedHash = reinterpret_cast<uint32_t*>(_expectedHash);
+		lcpLen = m_hashTable.QueryLCP(value, 
+		                              ilen /*out*/, 
+		                              allPositions1 /*out*/, 
+		                              allPositions2 /*out*/, 
+		                              expectedHash /*out*/);
 		if (lcpLen == 8)
 		{
 			return false;
 		}
 		if (lcpLen > 2)
 		{
+			uint32_t pos = allPositions1[ilen - 1];
 			bool minKeyUpdated = false;
-			int ilen = m_hashTable.ht[pos].GetIndexKeyLen();
 			assert(ilen <= lcpLen && lcpLen <= m_hashTable.ht[pos].GetFullKeyLen());
 			// Split as needed
 			// Determine whether the path-compression string completely matched
@@ -1326,18 +1300,8 @@ bool MlpSet::Insert(uint64_t value)
 			{
 				for (ilen--; ilen > 2; ilen--)
 				{
-					uint32_t pos = allPositions[ilen - 1];
-#ifndef NDEBUG
-					if (pos != 0)
-					{
-						uint32_t hash18bit = XXH::XXHashFn3(value, ilen);
-						hash18bit = hash18bit & ((1<<18) - 1);
-						uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
-						assert((m_hashTable.ht[pos].hash & 0xf803ffffU) == expectedHash);
-					}
-#endif
-					int shiftLen = 64 - 8 * ilen;
-					if (m_hashTable.ht[pos].IsOccupiedAndNode() && (m_hashTable.ht[pos].minKey >> shiftLen) == (value >> shiftLen))
+					uint32_t pos = allPositions1[ilen - 1];
+					if (m_hashTable.ht[pos].IsEqualNoHash(value, ilen))
 					{
 						assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
 						if (value < m_hashTable.ht[pos].minKey)
@@ -1347,6 +1311,22 @@ bool MlpSet::Insert(uint64_t value)
 						else
 						{
 							break;
+						}
+					}
+					else 
+					{
+						pos = allPositions2[ilen - 1];
+						if (m_hashTable.ht[pos].IsEqualNoHash(value, ilen))
+						{
+							assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
+							if (value < m_hashTable.ht[pos].minKey)
+							{
+								m_hashTable.ht[pos].minKey = value;
+							}
+							else
+							{
+								break;
+							}
 						}
 					}
 				}
@@ -1381,10 +1361,16 @@ _end:
 bool MlpSet::Exist(uint64_t value)
 {
 	assert(m_hasCalledInit);
-	uint32_t pos;
-	uint64_t _allPositions[4];
-	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
-	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+	uint32_t ilen;
+	uint64_t _allPositions1[4], _allPositions2[4], _expectedHash[4];
+	uint32_t* allPositions1 = reinterpret_cast<uint32_t*>(_allPositions1);
+	uint32_t* allPositions2 = reinterpret_cast<uint32_t*>(_allPositions2);
+	uint32_t* expectedHash = reinterpret_cast<uint32_t*>(_expectedHash);
+	int lcpLen = m_hashTable.QueryLCP(value, 
+		                              ilen /*out*/, 
+		                              allPositions1 /*out*/, 
+		                              allPositions2 /*out*/, 
+		                              expectedHash /*out*/);
 	return (lcpLen == 8);
 }
 
@@ -1405,13 +1391,18 @@ MlpSet::Promise MlpSet::LowerBoundInternal(uint64_t value, bool& found)
 	);
 #endif
 
-	uint32_t pos;
-	uint64_t _allPositions[4];
-	uint32_t* allPositions = reinterpret_cast<uint32_t*>(_allPositions);
-	int lcpLen = m_hashTable.QueryLCP(value, pos, allPositions);
+	uint32_t ilen;
+	uint32_t allPositions[2][8];
+	uint64_t _expectedHash[4];
+	uint32_t* expectedHash = reinterpret_cast<uint32_t*>(_expectedHash);
+	int lcpLen = m_hashTable.QueryLCP(value, 
+		                              ilen /*out*/, 
+		                              allPositions[0] /*out*/, 
+		                              allPositions[1] /*out*/, 
+		                              expectedHash /*out*/);
 	if (lcpLen == 8)
 	{
-		return Promise(&m_hashTable.ht[pos]);
+		return Promise(&m_hashTable.ht[allPositions[0][ilen - 1]]);
 	}
 	if (lcpLen == 2)
 	{
@@ -1421,6 +1412,7 @@ MlpSet::Promise MlpSet::LowerBoundInternal(uint64_t value, bool& found)
 	// lcp in hash table
 	//
 	{
+		uint32_t pos = allPositions[0][ilen - 1];
 		int dlen = m_hashTable.ht[pos].GetFullKeyLen();
 		if (dlen == lcpLen)
 		{
@@ -1464,41 +1456,35 @@ _parent:
 	// We need to return the smallest value larger than subtreeMax by visiting the parent path
 	// 
 	{
-		int ilen = m_hashTable.ht[pos].GetIndexKeyLen() - 1;
+		ilen--;
 		for (; ilen > 2; ilen--)
 		{
 #ifdef ENABLE_STATS
 			numParentPathSteps++;
 #endif
-			uint32_t pos = allPositions[ilen - 1];
-#ifndef NDEBUG
-			if (pos != 0)
+			rep(k, 0, 1)
 			{
-				uint32_t hash18bit = XXH::XXHashFn3(value, ilen);
-				hash18bit = hash18bit & ((1<<18) - 1);
-				uint32_t expectedHash = hash18bit | ((ilen-1) << 27) | 0x80000000U;
-				assert((m_hashTable.ht[pos].hash & 0xf803ffffU) == expectedHash);
-			}
-#endif
-			int shiftLen = 64 - 8 * ilen;
-			if (m_hashTable.ht[pos].IsOccupiedAndNode() && (m_hashTable.ht[pos].minKey >> shiftLen) == (value >> shiftLen))
-			{
-				assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
-				int dlen = m_hashTable.ht[pos].GetFullKeyLen();
-				assert((m_hashTable.ht[pos].minKey >> (64 - dlen * 8)) == (value >> (64 - dlen * 8)));
-				uint32_t child = (value >> (56 - dlen * 8)) & 255;
-				if (child < 255)
+				uint32_t pos = allPositions[k][ilen - 1];
+				if (m_hashTable.ht[pos].IsEqualNoHash(value, ilen))
 				{
-					int lbChild = m_hashTable.ht[pos].LowerBoundChild(child + 1);
-					if (lbChild != -1) 
+					assert(m_hashTable.ht[pos].GetIndexKeyLen() == ilen);
+					int dlen = m_hashTable.ht[pos].GetFullKeyLen();
+					assert((m_hashTable.ht[pos].minKey >> (64 - dlen * 8)) == (value >> (64 - dlen * 8)));
+					uint32_t child = (value >> (56 - dlen * 8)) & 255;
+					if (child < 255)
 					{
-						assert(lbChild != child);
-						// return the minimum value in lbChild subtree
-						//
-						uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
-						keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
-						return m_hashTable.GetLookupMustExistPromise(dlen + 1, keyToFind);
+						int lbChild = m_hashTable.ht[pos].LowerBoundChild(child + 1);
+						if (lbChild != -1) 
+						{
+							assert(lbChild != child);
+							// return the minimum value in lbChild subtree
+							//
+							uint64_t keyToFind = value & (~(255ULL << (56 - dlen * 8)));
+							keyToFind |= uint64_t(lbChild) << (56 - dlen * 8);
+							return m_hashTable.GetLookupMustExistPromise(dlen + 1, keyToFind);
+						}
 					}
+					break;
 				}
 			}
 		}

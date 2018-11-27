@@ -373,16 +373,24 @@ TEST(MlpSetUInt64, VitroCuckooHashQueryLcpCorrectness)
 		AutoTimer timer;
 		rep(i,0,numQueries - 1)
 		{
-			uint32_t pos;
-			uint64_t buffer[4];
-			int len = ht.QueryLCP(q[i], pos /*out*/, reinterpret_cast<uint32_t*>(buffer));
-			actualAnswers[i].first = len;
-			if (len == 2)
+			uint32_t ilen;
+			uint64_t _allPositions1[4], _allPositions2[4], _expectedHash[4];
+			uint32_t* allPositions1 = reinterpret_cast<uint32_t*>(_allPositions1);
+			uint32_t* allPositions2 = reinterpret_cast<uint32_t*>(_allPositions2);
+			uint32_t* expectedHash = reinterpret_cast<uint32_t*>(_expectedHash);
+			int lcpLen = ht.QueryLCP(q[i], 
+			                         ilen /*out*/, 
+			                         allPositions1 /*out*/, 
+			                         allPositions2 /*out*/, 
+			                         expectedHash /*out*/);
+			actualAnswers[i].first = lcpLen;
+			if (lcpLen == 2)
 			{
 				actualAnswers[i].second = uint64_t(-1);
 			}
 			else
 			{
+				uint32_t pos = allPositions1[ilen - 1];
 				actualAnswers[i].second = ht.ht[pos].minKey;
 			}
 		}

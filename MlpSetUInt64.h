@@ -305,13 +305,18 @@ public:
 	// Fast LCP query using vectorized hash computation and memory level parallelism
 	// Since we only store nodes of depth >= 3 in hash table, 
 	// this function will return 2 if the LCP is < 3 (even if the real LCP is < 2).
-	// In case this function returns > 2, resultPos will be set to the index of corresponding node
-	// allPositions must be a buffer at least 32 bytes long. 
-	// allPosition[i] will contain index to hash table for prefix i+1, for i = 2 to 7
-	// If the prefix exists in hash table, the index will always be correct.
-	// If the prefix does not exist, the index will either be 0 or with a small probability an incorrect one 
+	// In case this function returns > 2,
+	//   idxLen will be the index len of the lcp node in hash table (so allPositions1[idxLen - 1] will be the lcp node)
+	//   for i >= idxLen - 1, allPositions1[i] will be the node for prefix i+1 (0 if not exist)
+	//   for 2 <= i < idxLen - 1, allPositions1[i] and allPositions2[i] will be the possible 2 places where the node show up,
+	//   and expectedHash[i] will be its expected hash value.
+	// allPositions1, allPositions2, expectedHash must be buffers at least 32 bytes long. 
 	//
-	int QueryLCP(uint64_t key, uint32_t& resultPos, uint32_t* allPositions);
+	int QueryLCP(uint64_t key, 
+                 uint32_t& idxLen, 
+                 uint32_t* allPositions1, 
+                 uint32_t* allPositions2, 
+                 uint32_t* expectedHash);
 	
 	// hash table array pointer
 	//
