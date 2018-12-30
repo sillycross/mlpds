@@ -7,14 +7,14 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 * In this benchmark, we test 64-bit integer keys. "Lookup (16M)" means lookup on a set containing 16 million elements, etc.
 
-|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |
-|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|
-|    Insert (16M)    | 6.57M op/s |      2.14M op/s     |     1.97M op/s    | 1.03M op/s |
-|    Insert (80M)    | 6.80M op/s |      1.57M op/s     |     1.65M op/s    | 0.71M op/s |
-|    Lookup (16M)    | 9.06M op/s |      3.77M op/s     |     2.60M op/s    | 0.95M op/s |
-|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |
-|  Lower_Bound (16M) | 5.28M op/s |      3.38M op/s     |     No Support    | 0.96M op/s |
-|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |
+|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) |
+|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|
+|    Insert (16M)    | 6.57M op/s |      2.14M op/s     |     1.97M op/s    | 1.03M op/s |    Not Tested    |
+|    Insert (80M)    | 6.80M op/s |      1.57M op/s     |     1.65M op/s    | 0.71M op/s |    8.04M op/s    |
+|    Lookup (16M)    | 9.06M op/s |      3.77M op/s     |     2.60M op/s    | 0.95M op/s |    Not Tested    |
+|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |    8.15M op/s    |
+|  Lower_Bound (16M) | 5.28M op/s |      3.38M op/s     |     No Support    | 0.96M op/s |    Impossible    |
+|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |    Impossible    |
 
 ※ What do the numbers mean? MlpSet is only taking ~2.1, ~1.6, ~2.8 DRAM roundtrip time respectively, to perform a Insert, Lookup, Lower_Bound operation on a set of 80 million elements. Note that even if you could know the address where the answer is stored for free, reading it will also need 1 DRAM roundtrip!
 
@@ -24,14 +24,14 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 * Still 64-bit integer key, but another data distribution. This is a harder distribution for us (the total number of trie tree nodes is closer to the theoretical upper bound of 2n), but an easier distribution for HOT. However, even in this case, on 80M data set, we are still having 3x advantage on Insert and Lookup, and 2x advantage on Lower_Bound over HOT. 
 
-|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |
-|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|
-|    Insert (16M)    | 4.80M op/s |      2.07M op/s     |     1.57M op/s    | 1.01M op/s |
-|    Insert (80M)    | 4.93M op/s |      1.56M op/s     |     1.21M op/s    | 0.73M op/s |
-|    Lookup (16M)    | 7.46M op/s |      4.00M op/s     |     1.71M op/s    | 0.95M op/s |
-|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |
-|  Lower_Bound (16M) | 4.79M op/s |      3.50M op/s     |     No Support    | 0.94M op/s |
-|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |
+|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) |
+|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|
+|    Insert (16M)    | 4.80M op/s |      2.07M op/s     |     1.57M op/s    | 1.01M op/s |    Not Tested    |
+|    Insert (80M)    | 4.93M op/s |      1.56M op/s     |     1.21M op/s    | 0.73M op/s |    8.00M op/s    |
+|    Lookup (16M)    | 7.46M op/s |      4.00M op/s     |     1.71M op/s    | 0.95M op/s |    Not Tested    |
+|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |    8.23M op/s    |
+|  Lower_Bound (16M) | 4.79M op/s |      3.50M op/s     |     No Support    | 0.94M op/s |    Impossible    |
+|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |    Impossible    |
 
 ※ In both benchmarks, ~80% lookup yield positive results.
 
@@ -50,9 +50,13 @@ Fun with data structures utilizing memory level parallelism (working in progress
   * The Adaptive Radix Tree: ARTful Indexing for Main-Memory Databases, V. Leis et al, ICDE 2013.
   * Used as a benchmark rival.
 
+* [**dense_hash_set**](https://github.com/sparsehash/sparsehash) 
+  * Google dense\_hash\_set library.
+  * Used as a benchmark baseline to show how well a hash table could do on insert and lookup.
+  
 * [**GoogleTest**](https://github.com/abseil/googletest)
   * Framework for running all tests and benchmarks in this project.
-  
+
 * **fasttime.h** (Author: MIT 6.172 Staff)
   * Utility header for time measurement.
 
