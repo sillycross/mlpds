@@ -11,6 +11,49 @@ using google::dense_hash_set;
 namespace DenseHashSetUInt64
 {
 
+// Allocator using huge pages
+template <class T>
+struct Mallocator {
+  typedef T value_type;
+  typedef size_t size_type;
+  typedef ptrdiff_t difference_type;
+
+  typedef T* pointer;
+  typedef const T* const_pointer;
+  typedef T& reference;
+  typedef const T& const_reference;
+  
+  Mallocator() = default;
+  template <class U> constexpr Mallocator(const Mallocator<U>& o) noexcept { }
+  T* allocate(std::size_t n) 
+  {
+  	size_t len = n * sizeof(T);
+  	printf("Requested allocation of %llu elements of size %llu\n", (unsigned long long)n, (unsigned long long)sizeof(T));
+  	void* ptr = mmap(NULL, 
+	                 len, 
+	                 PROT_READ | PROT_WRITE, 
+	                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, 
+	                 -1 /*fd*/, 
+	                 0 /*offset*/);
+	ReleaseAssert(ptr != MAP_FAILED);
+	memset(ptr, 0, len);
+	T* p = reinterpret_cast<T*>(ptr);
+    printf("Allocated at %llx\n", (unsigned long long)((uintptr_t)p));
+    return p;
+  }
+  void deallocate(T* p, std::size_t) noexcept 
+  { 
+  	printf("Deallocation at ptr %llx, though it's no-op for us\n", (unsigned long long)((uintptr_t)p));
+  }
+  size_type max_size() const  {
+    return static_cast<size_type>(-1) / sizeof(value_type);
+  }
+  template<class U>
+  struct rebind {
+    typedef Mallocator<U> other;
+  };
+};
+
 namespace XXH
 {
 
@@ -62,20 +105,22 @@ struct HashFn
 	}
 };
 
+typedef dense_hash_set<uint64_t, HashFn, equal_to<uint64_t>, Mallocator<uint64_t> > DenseHashSet;
+
 // just to fool the compiler to not optimize out the iterator, so we can have a data dependency
 // i don't really have idea why the compiler ignores the noinline direction
 // unless i wrap it twice...
 // This could also be achieved by simply adding "noinline" in the library's prototype
 // but i don't want to modify the library
-pair<dense_hash_set<uint64_t, HashFn>::iterator, bool> __attribute__((noinline)) insertWrapper(dense_hash_set<uint64_t, HashFn>& s, uint64_t key)
+pair<DenseHashSet::iterator, bool> __attribute__((noinline)) insertWrapper(DenseHashSet& s, uint64_t key)
 {
-	pair<dense_hash_set<uint64_t, HashFn>::iterator, bool> r = s.insert(key);
+	pair<DenseHashSet::iterator, bool> r = s.insert(key);
 	return r;
 }
 
-dense_hash_set<uint64_t, HashFn>::iterator __attribute__((noinline)) insertWrapperWrapper(dense_hash_set<uint64_t, HashFn>& s, uint64_t key)
+DenseHashSet::iterator __attribute__((noinline)) insertWrapperWrapper(DenseHashSet& s, uint64_t key)
 {
-	pair<dense_hash_set<uint64_t, HashFn>::iterator, bool> r = insertWrapper(s, key);
+	pair<DenseHashSet::iterator, bool> r = insertWrapper(s, key);
 	return r.first;
 }
 
@@ -84,8 +129,9 @@ void DenseHashSetExecuteWorkload(WorkloadUInt64& workload)
 {
 	printf("DenseHashSet executing workload, enforced dependency = %d\n", (enforcedDep ? 1 : 0));
 	
-	dense_hash_set<uint64_t, HashFn> s;
+	DenseHashSet s;
 	s.set_empty_key(0xffffffffffffffffULL);
+	s.max_load_factor(0.7);
 	s.resize(workload.numInitialValues + 10000);
 	
 	printf("DenseHashSet populating initial values..\n");
@@ -96,7 +142,7 @@ void DenseHashSetExecuteWorkload(WorkloadUInt64& workload)
 		for (int i = 0; i < workload.numInitialValues; i++)
 		{
 			uint64_t realKey = workload.initialValues[i] ^ lastAnswer;
-			dense_hash_set<uint64_t, HashFn>::iterator it = insertWrapperWrapper(s, realKey);
+			DenseHashSet::iterator it = insertWrapperWrapper(s, realKey);
 			lastAnswer = *it;
 		}
 	}
