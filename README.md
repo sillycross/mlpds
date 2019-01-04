@@ -7,14 +7,14 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 * In this benchmark, we test 64-bit integer keys. "Lookup (16M)" means lookup on a set containing 16 million elements, etc.
 
-|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) |
-|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|
-|    Insert (16M)    | 6.57M op/s |      2.14M op/s     |     1.97M op/s    | 1.03M op/s |    Not Tested    |
-|    Insert (80M)    | 6.80M op/s |      1.57M op/s     |     1.65M op/s    | 0.71M op/s |   10.44M op/s    |
-|    Lookup (16M)    | 9.06M op/s |      3.77M op/s     |     2.60M op/s    | 0.95M op/s |    Not Tested    |
-|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |   12.50M op/s    |
-|  Lower_Bound (16M) | 5.28M op/s |      3.38M op/s     |     No Support    | 0.96M op/s |    Impossible    |
-|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |    Impossible    |
+|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) | [EBS](https://github.com/patmorin/arraylayout)<br> (JEA17) |
+|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|:------------:|
+|    Insert (16M)    | 6.57M op/s |      2.14M op/s     |     1.97M op/s    | 1.03M op/s |    Not Tested    |  Impossible  |
+|    Insert (80M)    | 6.80M op/s |      1.57M op/s     |     1.65M op/s    | 0.71M op/s |   10.44M op/s    |  Impossible  |
+|    Lookup (16M)    | 9.06M op/s |      3.77M op/s     |     2.60M op/s    | 0.95M op/s |    Not Tested    |  Not Tested  |
+|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |   12.50M op/s    |  3.63M op/s  |
+|  Lower_Bound (16M) | 5.28M op/s |      3.38M op/s     |     No Support    | 0.96M op/s |    Impossible    |  Not Tested  |
+|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.63M op/s  |
 
 ※ What do the numbers mean? MlpSet is only taking ~2.1, ~1.6, ~2.8 DRAM roundtrip time respectively, to perform a Insert, Lookup, Lower_Bound operation on a set of 80 million elements. Note that even if you could know the address where the answer is stored for free, reading it will also need 1 DRAM roundtrip!
 
@@ -24,14 +24,14 @@ Fun with data structures utilizing memory level parallelism (working in progress
 
 * Still 64-bit integer key, but another data distribution. This is a harder distribution for us (the total number of trie tree nodes is closer to the theoretical upper bound of 2n), but an easier distribution for HOT. However, even in this case, on 80M data set, we are still having 3x advantage on Insert and Lookup, and 2x advantage on Lower_Bound over HOT. 
 
-|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) |
-|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|
-|    Insert (16M)    | 4.80M op/s |      2.07M op/s     |     1.57M op/s    | 1.01M op/s |    Not Tested    |
-|    Insert (80M)    | 4.93M op/s |      1.56M op/s     |     1.21M op/s    | 0.73M op/s |   10.37M op/s    |
-|    Lookup (16M)    | 7.46M op/s |      4.00M op/s     |     1.71M op/s    | 0.95M op/s |    Not Tested    |
-|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |   12.34M op/s    |
-|  Lower_Bound (16M) | 4.79M op/s |      3.50M op/s     |     No Support    | 0.94M op/s |    Impossible    |
-|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |    Impossible    |
+|                    |   MlpSet   | [HOT Trie](https://dbis-informatik.uibk.ac.at/sites/default/files/2018-06/hot-height-optimized.pdf)<br> (SIGMOD18) | [ART Trie](https://db.in.tum.de/~leis/papers/ART.pdf)<br> (ICDE13) |  std::set  |  DenseHashSet<br> (Google) | [EBS](https://github.com/patmorin/arraylayout)<br> (JEA17) |
+|--------------------|:----------:|:-------------------:|:-----------------:|:----------:|:----------------:|:------------:|
+|    Insert (16M)    | 4.80M op/s |      2.07M op/s     |     1.57M op/s    | 1.01M op/s |    Not Tested    |  Impossible  |
+|    Insert (80M)    | 4.93M op/s |      1.56M op/s     |     1.21M op/s    | 0.73M op/s |   10.37M op/s    |  Impossible  |
+|    Lookup (16M)    | 7.46M op/s |      4.00M op/s     |     1.71M op/s    | 0.95M op/s |    Not Tested    |  Not Tested  |
+|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |   12.34M op/s    |  3.58M op/s  |
+|  Lower_Bound (16M) | 4.79M op/s |      3.50M op/s     |     No Support    | 0.94M op/s |    Impossible    |  Not Tested  |
+|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.58M op/s  |
 
 ※ In both benchmarks, ~80% lookup yield positive results.
 
@@ -55,6 +55,13 @@ Fun with data structures utilizing memory level parallelism (working in progress
 * [**dense_hash_set**](https://github.com/sparsehash/sparsehash) 
   * Google dense\_hash\_set library.
   * Used as a benchmark baseline to show how well a hash table could do on insert and lookup.
+  
+* [**EBS**]([Author](https://github.com/patmorin), [Paper](https://arxiv.org/pdf/1509.05053.pdf))
+  * An extensively optimized binary search algorithm. 
+  * Used as a benchmark baseline to show how well one could support lower_bound on a static data set via the binary search idea.
+  * Among the various binary-search-based algorithms provided in the repository, 
+    we used the one that is emperically fastest on our machine: 16-way implicit B-tree Eytzinger layout
+    along with various low-level optimizations including conditional moves, prefetches (the "btree16_a" variant). 
   
 * [**GoogleTest**](https://github.com/abseil/googletest)
   * Framework for running all tests and benchmarks in this project.

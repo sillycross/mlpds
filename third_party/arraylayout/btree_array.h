@@ -137,7 +137,8 @@ btree_array<B,T,I,aligned>::btree_array(ForwardIterator a0, I n0) {
 	n = n0;
 	if (aligned) {
 		// FIXME: replace with std::align once gcc supports it
-		assert(posix_memalign((void **)&a, 64, sizeof(T) * (n+1)) == 0);
+		int ret = posix_memalign((void **)&a, 64, sizeof(T) * (n+1));
+		assert(ret == 0);
 	} else {
 		a = new T[n];
 	}
