@@ -12,9 +12,9 @@ Fun with data structures utilizing memory level parallelism (working in progress
 |    Insert (16M)    | 6.57M op/s |      2.14M op/s     |     1.97M op/s    | 1.03M op/s |    Not Tested    |  Impossible  |
 |    Insert (80M)    | 6.80M op/s |      1.57M op/s     |     1.65M op/s    | 0.71M op/s |   10.44M op/s    |  Impossible  |
 |    Lookup (16M)    | 9.06M op/s |      3.77M op/s     |     2.60M op/s    | 0.95M op/s |    Not Tested    |  Not Tested  |
-|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |   12.50M op/s    |  3.63M op/s  |
+|    Lookup (80M)    | 9.03M op/s |      2.64M op/s     |     2.00M op/s    | 0.67M op/s |   12.50M op/s    |  3.72M op/s  |
 |  Lower_Bound (16M) | 5.28M op/s |      3.38M op/s     |     No Support    | 0.96M op/s |    Impossible    |  Not Tested  |
-|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.63M op/s  |
+|  Lower_Bound (80M) | 5.06M op/s |      2.44M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.70M op/s  |
 
 ※ What do the numbers mean? MlpSet is only taking ~2.1, ~1.6, ~2.8 DRAM roundtrip time respectively, to perform a Insert, Lookup, Lower_Bound operation on a set of 80 million elements. Note that even if you could know the address where the answer is stored for free, reading it will also need 1 DRAM roundtrip!
 
@@ -29,9 +29,9 @@ Fun with data structures utilizing memory level parallelism (working in progress
 |    Insert (16M)    | 4.80M op/s |      2.07M op/s     |     1.57M op/s    | 1.01M op/s |    Not Tested    |  Impossible  |
 |    Insert (80M)    | 4.93M op/s |      1.56M op/s     |     1.21M op/s    | 0.73M op/s |   10.37M op/s    |  Impossible  |
 |    Lookup (16M)    | 7.46M op/s |      4.00M op/s     |     1.71M op/s    | 0.95M op/s |    Not Tested    |  Not Tested  |
-|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |   12.34M op/s    |  3.58M op/s  |
+|    Lookup (80M)    | 7.40M op/s |      2.61M op/s     |     1.31M op/s    | 0.67M op/s |   12.34M op/s    |  3.74M op/s  |
 |  Lower_Bound (16M) | 4.79M op/s |      3.50M op/s     |     No Support    | 0.94M op/s |    Impossible    |  Not Tested  |
-|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.58M op/s  |
+|  Lower_Bound (80M) | 4.69M op/s |      2.39M op/s     |     No Support    | 0.67M op/s |    Impossible    |  3.72M op/s  |
 
 ※ In both benchmarks, ~80% lookup yield positive results.
 
@@ -56,7 +56,7 @@ Fun with data structures utilizing memory level parallelism (working in progress
   * Google dense\_hash\_set library.
   * Used as a benchmark baseline to show how well a hash table could do on insert and lookup.
   
-* [**EBS**]([Author](https://github.com/patmorin), [Paper](https://arxiv.org/pdf/1509.05053.pdf))
+* [**EBS**](https://github.com/patmorin/arraylayout)([Author](https://github.com/patmorin), [Paper](https://arxiv.org/pdf/1509.05053.pdf))
   * An extensively optimized binary search algorithm. 
   * Used as a benchmark baseline to show how well one could support lower_bound on a static data set via the binary search idea.
   * Among the various binary-search-based algorithms provided in the repository, 

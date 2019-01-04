@@ -15,6 +15,17 @@
 #include <limits>
 #include <cassert>
 
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <err.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
 #include <type_traits>
 #include "base_array.h"
 
@@ -136,9 +147,17 @@ btree_array<B,T,I,aligned>::btree_array(ForwardIterator a0, I n0) {
 	}
 	n = n0;
 	if (aligned) {
-		// FIXME: replace with std::align once gcc supports it
-		int ret = posix_memalign((void **)&a, 64, sizeof(T) * (n+1));
-		assert(ret == 0);
+		uint64_t numBytes = sizeof(T) * (n+1);
+		numBytes = (((numBytes - 1) >> 30) + 1) << 30;
+		void* ptr = mmap(NULL, 
+			             numBytes, 
+			             PROT_READ | PROT_WRITE, 
+			             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, 
+			             -1 /*fd*/, 
+			             0 /*offset*/);
+		assert(ptr != MAP_FAILED);
+		printf("%llu bytes memory allocated at 0x%llx\n", numBytes, ptr);
+		a = reinterpret_cast<T*>(ptr);
 	} else {
 		a = new T[n];
 	}
@@ -149,7 +168,9 @@ btree_array<B,T,I,aligned>::btree_array(ForwardIterator a0, I n0) {
 template<unsigned B, typename T, typename I, bool aligned>
 btree_array<B,T,I,aligned>::~btree_array() {
 	if (aligned) {
-		free(a);
+		uint64_t numBytes = sizeof(T) * (n+1);
+		numBytes = (((numBytes - 1) >> 30) + 1) << 30;
+		munmap(a, numBytes);
 	} else {
 		delete[] a;
 	}
