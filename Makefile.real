@@ -11,7 +11,7 @@ EXTRA_FLAGS := -mavx2
 
 # header file base paths for includes, space separated
 #
-INCLUDE_DIRS := . ./Workloads  ./third_party/hot ./third_party/sparsehash/include/
+INCLUDE_DIRS := . ./Workloads  ./third_party/hot ./third_party/sparsehash/include/ ./third_party/arraylayout
 
 ##########################################################
 
