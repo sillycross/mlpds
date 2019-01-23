@@ -7,6 +7,10 @@
 #include "hot_wrapper.h"
 #include "gtest/gtest.h"
 
+#include <hot/singlethreaded/HOTSingleThreaded.hpp>
+#include <idx/contenthelpers/IdentityKeyExtractor.hpp>
+#include <idx/contenthelpers/OptionalValue.hpp>
+
 namespace
 {
 
@@ -187,6 +191,55 @@ TEST(HotTrieUInt64, WorkloadD_80M_Dep)
 		ReleaseAssert(workload.results[i] == workload.expectedResults[i]);
 	}
 	printf("Finished %d queries\n", int(workload.numOperations));
+}
+
+typedef hot::singlethreaded::HOTSingleThreaded<uint64_t, idx::contenthelpers::IdentityKeyExtractor> HotSetUInt64;
+
+TEST(HotTrieUInt64, Iteration)
+{
+	const int N = 80000000;
+	const int Q = 20000000;
+	WorkloadUInt64 workload;
+	workload.AllocateMemory(N, Q);
+	rep(i, 0, N-1)
+	{
+		uint64_t key = 0;
+		rep(k, 2, 7)
+		{
+			key = key * 256 + rand() % 6 + 48;
+		}
+		rep(k, 0, 1)
+		{
+			key = key * 256 + rand() % 96 + 32;
+		}
+		
+		workload.initialValues[i] = key;
+	}
+	
+	HotSetUInt64 s;
+	{
+		AutoTimer timer;
+		rep(i, 0, workload.numInitialValues - 1)
+		{
+			s.insert(workload.initialValues[i]);
+		}
+	}
+	
+	printf("iteration..\n");
+	
+	uint64_t sum = 0;
+	uint64_t cnt = 0;
+	{
+		AutoTimer timer;
+		auto it = s.begin();
+		while (it != s.end()) 
+		{
+			sum += *it;
+			cnt++;
+			++it;
+		}
+	}
+	printf("%llu %llu\n", cnt, sum);
 }
 
 }	// namespace
