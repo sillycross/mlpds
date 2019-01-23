@@ -1,5 +1,16 @@
-## High-Performance Data Structures via Memory Level Parallelism
-Fun with data structures utilizing memory level parallelism (working in progress)
+## MlpIndex
+We introduce MlpIndex, an extremely fast ordered index by leveraging memory level parallelism, 
+a CPU feature available on most of the 21st centuary CPUs. 
+
+MlpIndex implements an ordered set structure, and supports identical APIs as std::set, specifically, 
+Insert (insert an element into the set), Lookup (checks if an element exists), and Lower_Bound (returns the smallest element 
+no smaller than the given element).
+
+Theoretically, MlpIndex has a complexity of ![O(\log_D\log M)](https://latex.codecogs.com/gif.latex?O%28%5Clog_D%5Clog%20M%29) per operation
+on a key universe of \[0,M) and a machine that supports D-degree SIMD operation 
+and memory level parallelism, with a memory consumption of ![O(n\log_D\log M)](https://latex.codecogs.com/gif.latex?O%28n%5Clog_D%5Clog%20M%29).
+
+Currently we only support single-threaded and 64-bit keys, although more work is in progress..
 
 ### Benchmark results
 
