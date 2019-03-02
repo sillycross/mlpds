@@ -242,6 +242,98 @@ TEST(HotTrieUInt64, Iteration)
 	printf("%llu %llu\n", cnt, sum);
 }
 
+TEST(HotTrieUInt64, IterationString)
+{
+	const int N = 80000000;
+	
+	char** arr = new char*[N];
+	rep(i,0,N-1)
+	{
+		arr[i] = new char[32];
+		rep(k,0,30)
+		{
+			arr[i][k] = rand() % 6 + 48;
+		}
+		arr[i][31] = 0;
+	}
+	
+	hot::singlethreaded::HOTSingleThreaded<const char*, idx::contenthelpers::IdentityKeyExtractor> s;
+	{
+		AutoTimer timer;
+		rep(i, 0, N - 1)
+		{
+			s.insert(arr[i]);
+		}
+	}
+
+	printf("iteration..\n");
+	
+	uint64_t sum = 0;
+	uint64_t cnt = 0;
+	{
+		AutoTimer timer;
+		auto it = s.begin();
+		while (it != s.end()) 
+		{
+			const char* v = *it;
+			sum += v[0] + v[8] + v[16] + v[24];
+			cnt++;
+			++it;
+		}
+	}
+	printf("%llu %llu\n", cnt, sum);
+}
+
+TEST(HotTrieUInt64, IterationEmailString)
+{
+	int M = 80000000;
+	char** arr = new char*[M];
+	
+	{
+		FILE* file = fopen("emails-validated-random-only-30-characters.txt.random", "r");
+		char buffer[200];
+		rep(i, 0, M-1)
+		{
+			ReleaseAssert(fgets(buffer, 200, file) != nullptr);
+			int len = strlen(buffer);
+			// remove newline
+			buffer[len-1] = 0;
+			len--;
+			arr[i] = new char[len+1];
+			memcpy(arr[i], buffer, len+1);
+		}
+		fclose(file);
+	}
+
+	printf("insertion..\n");
+	
+	hot::singlethreaded::HOTSingleThreaded<const char*, idx::contenthelpers::IdentityKeyExtractor> s;
+	{
+		AutoTimer timer;
+		rep(i, 0, M - 1)
+		{
+			s.insert(arr[i]);
+		}
+	}
+
+	printf("iteration..\n");
+	
+	uint64_t sum = 0;
+	uint64_t cnt = 0;
+	{
+		AutoTimer timer;
+		auto it = s.begin();
+		while (it != s.end()) 
+		{
+			const char* v = *it;
+			sum += v[0] + v[8] + v[16] + v[24];
+			cnt++;
+			++it;
+		}
+	}
+	printf("%llu %llu\n", cnt, sum);
+}
+
 }	// namespace
 
 
